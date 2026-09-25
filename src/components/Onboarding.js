@@ -3,18 +3,42 @@
 import { useState } from 'react';
 import { Home, Sparkles, Key, PlusCircle, ArrowRight, HelpCircle } from 'lucide-react';
 import { store } from '../lib/storage';
+import { signInWithGoogle } from '../lib/supabase';
 
 export default function Onboarding({ currentUser, onComplete }) {
   const [googleName, setGoogleName] = useState('');
   const [googleEmail, setGoogleEmail] = useState('');
   const [showConfigHelp, setShowConfigHelp] = useState(false);
+  const [isSigningInOAuth, setIsSigningInOAuth] = useState(false);
 
   const [mode, setMode] = useState('CHOICE'); // 'CHOICE', 'CREATE', 'JOIN'
   const [houseName, setHouseName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Handle Google Login Submit
+  // Handle Google OAuth Popup/Redirect Login
+  const handleTriggerGoogleOAuth = async () => {
+    setIsSigningInOAuth(true);
+    setErrorMessage('');
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      console.warn('[Google OAuth Warning]', err);
+      // Fallback to name/email if OAuth is not configured in environment
+      const name = googleName.trim() || 'Roommate User';
+      const email = googleEmail.trim() || 'user@example.com';
+      store.loginWithGoogle({
+        id: 'usr_' + Math.random().toString(36).substring(2, 9),
+        email: email,
+        full_name: name,
+        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+      });
+    } finally {
+      setIsSigningInOAuth(false);
+    }
+  };
+
+  // Handle Form Submit Login
   const handleGoogleLogin = (e) => {
     e.preventDefault();
     const name = googleName.trim() || 'Alex Smith';

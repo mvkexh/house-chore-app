@@ -10,8 +10,65 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: true,
   },
 });
+
+/**
+ * Authentication Helpers
+ */
+export async function signInWithGoogle() {
+  if (typeof window === 'undefined') return;
+  const redirectUrl = `${window.location.origin}/auth/callback`;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: redirectUrl,
+    },
+  });
+  if (error) {
+    console.warn('[Supabase Auth Warning] Google OAuth Error:', error.message);
+    throw error;
+  }
+  return data;
+}
+
+export async function signOutUser() {
+  try {
+    await supabase.auth.signOut();
+  } catch (err) {
+    console.warn('[Supabase Auth Warning] Sign out error:', err.message);
+  }
+}
+
+/**
+ * User Profile Persistence
+ */
+export async function dbUpsertUserProfile(userObj) {
+  if (!userObj || !userObj.id) return null;
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .upsert([
+        {
+          id: userObj.id,
+          email: userObj.email,
+          full_name: userObj.full_name,
+          avatar_url: userObj.avatar_url,
+          updated_at: new Date().toISOString(),
+        },
+      ], { onConflict: 'id' })
+      .select();
+
+    if (error) {
+      console.warn('[Supabase Sync Warning] Profile upsert warning:', error.message);
+    }
+    return data?.[0] || userObj;
+  } catch (err) {
+    console.warn('[Supabase Sync Warning] dbUpsertUserProfile error:', err.message);
+    return userObj;
+  }
+}
 
 /**
  * Shared Cloud Database Helper Functions

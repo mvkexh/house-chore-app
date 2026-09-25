@@ -3,7 +3,7 @@
  */
 import { ROLES, RESPONSIBILITY_STATUS, ASSIGNMENT_SOURCE, CHORE_TYPES, CHORE_FREQUENCIES } from './types';
 import { generateWeeklySchedule, isDateInRange } from './scheduler';
-import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData } from './supabase';
+import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbUpsertUserProfile, signOutUser } from './supabase';
 
 const STORAGE_KEY = 'roommate_chore_manager_db_v4';
 const CURRENT_USER_KEY = 'roommate_chore_manager_user';
@@ -205,15 +205,29 @@ class Store {
     };
 
     const db = this.getRawData();
-    let existingUser = db.users.find((u) => u.email === defaultProfile.email);
+    let existingUser = db.users.find((u) => u.email === defaultProfile.email || u.id === defaultProfile.id);
 
     if (!existingUser) {
       existingUser = { ...defaultProfile, created_at: new Date().toISOString() };
       db.users.push(existingUser);
-      this.saveRawData(db);
+    } else {
+      if (defaultProfile.full_name) existingUser.full_name = defaultProfile.full_name;
+      if (defaultProfile.avatar_url) existingUser.avatar_url = defaultProfile.avatar_url;
     }
+    this.saveRawData(db);
 
     localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(existingUser));
+
+    // Sync profile to Supabase & Server API
+    dbUpsertUserProfile(existingUser);
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: [existingUser] }),
+      }).catch(() => {});
+    }
+
     this.notify();
     return existingUser;
   }
@@ -221,6 +235,7 @@ class Store {
   logout() {
     localStorage.removeItem(CURRENT_USER_KEY);
     localStorage.removeItem(ACTIVE_HOUSE_KEY);
+    signOutUser();
     this.notify();
   }
 
@@ -302,6 +317,21 @@ class Store {
       houses: [...cloud.houses.filter((h) => h.id !== houseId), newHouse],
       house_members: [...cloud.house_members.filter((m) => m.id !== initialMember.id), initialMember],
     }));
+
+    // Sync to Server API
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/houses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newHouse),
+      }).catch(() => {});
+
+      fetch('/api/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(initialMember),
+      }).catch(() => {});
+    }
 
     // Sync to Supabase Database
     dbCreateHouse(newHouse);
@@ -473,7 +503,25 @@ class Store {
     // 1. Search local DB
     let house = db.houses.find((h) => (h.invite_code || '').toUpperCase() === cleanCode);
 
-    // 2. Search Shared Cloud Registry
+    // 2. Search Server API
+    if (!house && typeof fetch !== 'undefined') {
+      try {
+        const res = await fetch(`/api/houses?code=${encodeURIComponent(cleanCode)}`);
+        if (res.ok) {
+          const apiJson = await res.json();
+          if (apiJson.success && apiJson.house) {
+            house = apiJson.house;
+            if (!db.houses.some((h) => h.id === house.id)) {
+              db.houses.push(house);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Server API House Search Warning]', err);
+      }
+    }
+
+    // 3. Search Shared Cloud Registry
     if (!house) {
       const cloud = getSharedCloudRegistry();
       house = cloud.houses.find((h) => (h.invite_code || '').toUpperCase() === cleanCode);
@@ -490,7 +538,7 @@ class Store {
       }
     }
 
-    // 3. Search Supabase Database
+    // 4. Search Supabase Database
     if (!house) {
       const fetched = await dbFetchHouseByCode(cleanCode);
       if (fetched) {
@@ -541,12 +589,21 @@ class Store {
 
     this.saveRawData(db);
 
-    // Sync membership to Shared Cloud Registry and Supabase
+    // Sync membership to Shared Cloud Registry, Server API, and Supabase
     updateSharedCloudRegistry((cloud) => ({
       ...cloud,
       houses: [...cloud.houses.filter((h) => h.id !== house.id), house],
       house_members: [...cloud.house_members.filter((m) => m.id !== member.id), member],
     }));
+
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(member),
+      }).catch(() => {});
+    }
+
     dbCreateMember(member);
 
     this.setActiveHouseId(house.id);
@@ -1284,3 +1341,57 @@ class Store {
 }
 
 export const store = new Store();
+
+export async function syncHouseWithServer(houseId) {
+  if (typeof window === 'undefined' || !houseId) return;
+  try {
+    // 1. Sync members from server API
+    const res = await fetch(`/api/members?house_id=${encodeURIComponent(houseId)}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.members)) {
+        const db = store.getRawData();
+        let changed = false;
+        json.members.forEach((m) => {
+          if (!db.house_members.some((hm) => hm.id === m.id)) {
+            db.house_members.push(m);
+            changed = true;
+          }
+        });
+        if (changed) {
+          store.saveRawData(db);
+        }
+      }
+    }
+
+    // 2. Sync house data from Supabase DB
+    const houseData = await dbFetchHouseData(houseId);
+    if (houseData) {
+      const db = store.getRawData();
+      let changed = false;
+      (houseData.members || []).forEach((m) => {
+        if (!db.house_members.some((hm) => hm.id === m.id)) {
+          db.house_members.push(m);
+          changed = true;
+        }
+      });
+      (houseData.chores || []).forEach((c) => {
+        if (!db.chores.some((ch) => ch.id === c.id)) {
+          db.chores.push(c);
+          changed = true;
+        }
+      });
+      (houseData.assignments || []).forEach((a) => {
+        if (!db.assignments.some((as) => as.id === a.id)) {
+          db.assignments.push(a);
+          changed = true;
+        }
+      });
+      if (changed) {
+        store.saveRawData(db);
+      }
+    }
+  } catch (err) {
+    console.warn('[Sync House Error]', err);
+  }
+}

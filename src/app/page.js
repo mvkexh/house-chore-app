@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { store } from '../lib/storage';
+import { store, syncHouseWithServer } from '../lib/storage';
+import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import Onboarding from '../components/Onboarding';
@@ -40,13 +41,38 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const unsubscribe = store.subscribe(() => {
+    // 1. Local Store Subscription
+    const unsubscribeStore = store.subscribe(() => {
       setDbState(store.getRawData());
       setCurrentUser(store.getCurrentUser());
       setActiveHouseId(store.getActiveHouseId());
     });
-    return unsubscribe;
+
+    // 2. Supabase Auth State Change Listener (Google OAuth)
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const u = session.user;
+        const googleProfile = {
+          id: u.id,
+          email: u.email,
+          full_name: u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split('@')[0] || 'Roommate User',
+          avatar_url: u.user_metadata?.avatar_url || u.user_metadata?.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.email || 'user')}`,
+        };
+        store.loginWithGoogle(googleProfile);
+      }
+    });
+
+    return () => {
+      unsubscribeStore();
+      authListener?.subscription?.unsubscribe();
+    };
   }, []);
+
+  useEffect(() => {
+    if (activeHouseId) {
+      syncHouseWithServer(activeHouseId);
+    }
+  }, [activeHouseId]);
 
   const userHouses = currentUser ? store.getUserHouses(currentUser.id) : [];
   let activeHouse = userHouses.find((h) => h.id === activeHouseId);
