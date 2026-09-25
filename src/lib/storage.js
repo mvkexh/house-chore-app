@@ -3,7 +3,7 @@
  */
 import { ROLES, RESPONSIBILITY_STATUS, ASSIGNMENT_SOURCE, CHORE_TYPES, CHORE_FREQUENCIES } from './types';
 import { generateWeeklySchedule, isDateInRange } from './scheduler';
-import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbUpsertUserProfile, signOutUser, isSupabaseConfigured } from './supabase';
+import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbUpsertUserProfile, dbDeleteHouse, dbUpdateMemberDisplayName, signOutUser, isFirebaseConfigured } from './firebase';
 
 const STORAGE_KEY = 'roommate_chore_manager_db_v4';
 const CURRENT_USER_KEY = 'roommate_chore_manager_user';
@@ -256,13 +256,27 @@ class Store {
     }
 
     // Also update display_name in house_members
-    db.house_members.forEach((hm) => {
-      if (hm.user_id === userId && full_name) {
-        hm.display_name = full_name;
-      }
-    });
+    if (full_name) {
+      db.house_members.forEach((hm) => {
+        if (hm.user_id === userId) {
+          hm.display_name = full_name;
+        }
+      });
+      this.saveRawData(db);
 
-    this.saveRawData(db);
+      // Sync display name change to Cloud Firestore and Server API
+      dbUpdateMemberDisplayName(userId, full_name);
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ house_members: db.house_members.filter((hm) => hm.user_id === userId) }),
+        }).catch(() => {});
+      }
+    }
+
+    dbUpsertUserProfile(user || currentUser);
+    this.notify();
   }
 
   // --- HOUSES ENGINE ---
@@ -310,8 +324,8 @@ class Store {
       joined_at: new Date().toISOString(),
     };
 
-    // If Supabase Cloud Database is configured, insert to Supabase FIRST
-    if (isSupabaseConfigured()) {
+    // If Firebase Cloud Database is configured, insert to Firestore FIRST
+    if (isFirebaseConfigured()) {
       await dbCreateHouse(newHouse);
       await dbCreateMember(initialMember);
     }
@@ -402,7 +416,7 @@ class Store {
     this.notify();
   }
 
-  deleteHouse(houseId, userId) {
+  async deleteHouse(houseId, userId) {
     const db = this.getRawData();
     const house = db.houses.find((h) => h.id === houseId);
     if (!house) throw new Error('House not found.');
@@ -426,6 +440,21 @@ class Store {
     }
 
     this.saveRawData(db);
+
+    // Sync deletion to Shared Cloud Registry, Server API, and Cloud Firestore
+    updateSharedCloudRegistry((cloud) => ({
+      ...cloud,
+      houses: cloud.houses.filter((h) => h.id !== houseId),
+      house_members: cloud.house_members.filter((m) => m.house_id !== houseId),
+    }));
+
+    if (typeof fetch !== 'undefined') {
+      fetch(`/api/houses?id=${encodeURIComponent(houseId)}`, {
+        method: 'DELETE',
+      }).catch(() => {});
+    }
+
+    await dbDeleteHouse(houseId);
 
     const userActiveHouses = this.getUserHouses(userId);
     if (userActiveHouses.length > 0) {
@@ -543,7 +572,7 @@ class Store {
       }
     }
 
-    // 4. Search Supabase Database
+    // 4. Search Cloud Firestore Database
     if (!house) {
       const fetched = await dbFetchHouseByCode(cleanCode);
       if (fetched) {

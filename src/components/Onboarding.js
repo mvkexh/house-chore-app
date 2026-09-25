@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Home, Sparkles, Key, PlusCircle, ArrowRight, HelpCircle } from 'lucide-react';
 import { store } from '../lib/storage';
-import { signInWithGoogle } from '../lib/supabase';
+import { signInWithGoogle } from '../lib/firebase';
 
 export default function Onboarding({ currentUser, onComplete }) {
   const [googleName, setGoogleName] = useState('');

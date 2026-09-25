@@ -129,7 +129,7 @@ export default function HouseSettings({ house, currentUser, members, onShowToast
     }
   };
 
-  const handleConfirmDelete = (e) => {
+  const handleConfirmDelete = async (e) => {
     e.preventDefault();
     if (deleteConfirmInput.trim().toLowerCase() !== house.name.trim().toLowerCase() && deleteConfirmInput.trim().toUpperCase() !== 'DELETE') {
       setActionError(`Please type "${house.name}" or "DELETE" to confirm.`);
@@ -137,7 +137,7 @@ export default function HouseSettings({ house, currentUser, members, onShowToast
     }
 
     try {
-      store.deleteHouse(house.id, currentUser.id);
+      await store.deleteHouse(house.id, currentUser.id);
       setShowDeleteConfirmModal(false);
       onShowToast?.({ type: 'success', message: `House "${house.name}" permanently deleted.` });
       onHouseDeleted?.();

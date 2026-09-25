@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { addServerHouse, findServerHouseByCode, getServerSyncState } from '../../../lib/serverSync';
-import { dbFetchHouseByCode, dbCreateHouse } from '../../../lib/supabase';
+import { addServerHouse, findServerHouseByCode, getServerSyncState, deleteServerHouse } from '../../../lib/serverSync';
+import { dbFetchHouseByCode, dbCreateHouse, dbDeleteHouse } from '../../../lib/firebase';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -16,7 +16,7 @@ export async function GET(request) {
       return NextResponse.json({ success: true, house });
     }
 
-    // 2. Check Supabase DB
+    // 2. Check Firebase Cloud Firestore DB
     const dbHouse = await dbFetchHouseByCode(cleanCode);
     if (dbHouse) {
       addServerHouse(dbHouse);
@@ -46,12 +46,31 @@ export async function POST(request) {
 
     const savedHouse = addServerHouse(body);
 
-    // Sync to Supabase DB asynchronously
+    // Sync to Cloud Firestore DB asynchronously
     dbCreateHouse(body).catch((err) => {
-      console.warn('[API /houses POST Supabase Sync Warning]', err);
+      console.warn('[API /houses POST Firebase Sync Warning]', err);
     });
 
     return NextResponse.json({ success: true, house: savedHouse });
+  } catch (err) {
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const houseId = searchParams.get('id');
+    if (!houseId) {
+      return NextResponse.json({ success: false, error: 'House ID is required.' }, { status: 400 });
+    }
+
+    deleteServerHouse(houseId);
+    dbDeleteHouse(houseId).catch((err) => {
+      console.warn('[API /houses DELETE Firebase Sync Warning]', err);
+    });
+
+    return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }

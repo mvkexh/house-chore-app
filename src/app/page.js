@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { store, syncHouseWithServer } from '../lib/storage';
-import { supabase } from '../lib/supabase';
+import { subscribeToAuthState } from '../lib/firebase';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import Onboarding from '../components/Onboarding';
@@ -48,15 +48,14 @@ export default function Home() {
       setActiveHouseId(store.getActiveHouseId());
     });
 
-    // 2. Supabase Auth State Change Listener (Google OAuth)
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        const u = session.user;
+    // 2. Firebase Auth State Change Listener (Google OAuth)
+    const unsubscribeAuth = subscribeToAuthState((user) => {
+      if (user) {
         const googleProfile = {
-          id: u.id,
-          email: u.email,
-          full_name: u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split('@')[0] || 'Roommate User',
-          avatar_url: u.user_metadata?.avatar_url || u.user_metadata?.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.email || 'user')}`,
+          id: user.uid,
+          email: user.email || 'user@example.com',
+          full_name: user.displayName || user.email?.split('@')[0] || 'Roommate User',
+          avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
         };
         store.loginWithGoogle(googleProfile);
       }
@@ -64,7 +63,7 @@ export default function Home() {
 
     return () => {
       unsubscribeStore();
-      authListener?.subscription?.unsubscribe();
+      unsubscribeAuth();
     };
   }, []);
 

@@ -53,6 +53,23 @@ export function addServerMember(memberObj) {
   return memberObj;
 }
 
+export function deleteServerHouse(houseId) {
+  if (!houseId) return;
+  globalSyncState.houses = globalSyncState.houses.filter((h) => h.id !== houseId);
+  globalSyncState.house_members = globalSyncState.house_members.filter((m) => m.house_id !== houseId);
+  globalSyncState.chores = globalSyncState.chores.filter((c) => c.house_id !== houseId);
+  globalSyncState.assignments = globalSyncState.assignments.filter((a) => a.house_id !== houseId);
+}
+
+export function updateServerMemberDisplayName(userId, newDisplayName) {
+  if (!userId || !newDisplayName) return;
+  globalSyncState.house_members.forEach((m) => {
+    if (m.user_id === userId) {
+      m.display_name = newDisplayName;
+    }
+  });
+}
+
 export function getServerHouseMembers(houseId) {
   if (!houseId) return [];
   return globalSyncState.house_members.filter((m) => m.house_id === houseId);

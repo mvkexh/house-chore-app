@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isHouseMember(houseId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/houseMembers/$(houseId + "_" + request.auth.uid)) &&
+        get(/databases/$(database)/documents/houseMembers/$(houseId + "_" + request.auth.uid)).data.isActive == true;
+    }
+
+    function isHouseAdmin(houseId) {
+      return isHouseMember(houseId) &&
+        get(/databases/$(database)/documents/houseMembers/$(houseId + "_" + request.auth.uid)).data.role == 'ADMIN';
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    // Houses Collection
+    match /houses/{houseId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isHouseAdmin(houseId);
+    }
+
+    // House Members Collection
+    match /houseMembers/{memberId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isHouseAdmin(resource.data.houseId);
+    }
+
+    // House Scoped Collections
+    match /chores/{docId} {
+      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+    }
+    match /assignments/{docId} {
+      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+    }
+    match /completionEvents/{docId} {
+      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+    }
+    match /attentionRequests/{docId} {
+      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+    }
+    match /absences/{docId} {
+      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+    }
+    match /houseHolidays/{docId} {
+      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+    }
+    match /notifications/{docId} {
+      allow read, update: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthenticated();
+    }
+  }
+}

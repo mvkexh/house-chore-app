@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { addServerMember, getServerHouseMembers, getServerSyncState } from '../../../lib/serverSync';
-import { dbCreateMember } from '../../../lib/supabase';
+import { dbCreateMember } from '../../../lib/firebase';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -24,9 +24,9 @@ export async function POST(request) {
 
     const savedMember = addServerMember(body);
 
-    // Sync to Supabase DB
+    // Sync to Cloud Firestore DB
     dbCreateMember(body).catch((err) => {
-      console.warn('[API /members POST Supabase Sync Warning]', err);
+      console.warn('[API /members POST Firebase Sync Warning]', err);
     });
 
     return NextResponse.json({ success: true, member: savedMember });
