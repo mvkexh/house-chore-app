@@ -87,11 +87,11 @@ export default function Home() {
     setActiveTab('dashboard');
   };
 
-  const handleModalJoinHouse = (e) => {
+  const handleModalJoinHouse = async (e) => {
     e.preventDefault();
     if (!joinCodeInput.trim()) return;
     try {
-      store.joinHouseByCode(joinCodeInput.trim(), currentUser.id);
+      await store.joinHouseByCode(joinCodeInput.trim(), currentUser.id);
       setJoinCodeInput('');
       setModalError('');
       setShowJoinHouseModal(false);

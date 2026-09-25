@@ -39,7 +39,7 @@ export default function Onboarding({ currentUser, onComplete }) {
     if (onComplete) onComplete(house.id);
   };
 
-  const handleJoinHouseSubmit = (e) => {
+  const handleJoinHouseSubmit = async (e) => {
     e.preventDefault();
     if (!joinCode.trim()) {
       setErrorMessage('Please enter a house join code.');
@@ -47,7 +47,7 @@ export default function Onboarding({ currentUser, onComplete }) {
     }
     setErrorMessage('');
     try {
-      const house = store.joinHouseByCode(joinCode.trim(), currentUser.id);
+      const house = await store.joinHouseByCode(joinCode.trim(), currentUser.id);
       if (onComplete) onComplete(house.id);
     } catch (err) {
       setErrorMessage(err.message || 'Failed to join house.');

@@ -3,10 +3,42 @@
  */
 import { ROLES, RESPONSIBILITY_STATUS, ASSIGNMENT_SOURCE, CHORE_TYPES, CHORE_FREQUENCIES } from './types';
 import { generateWeeklySchedule, isDateInRange } from './scheduler';
+import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData } from './supabase';
 
 const STORAGE_KEY = 'roommate_chore_manager_db_v4';
 const CURRENT_USER_KEY = 'roommate_chore_manager_user';
 const ACTIVE_HOUSE_KEY = 'roommate_chore_manager_active_house';
+const SHARED_CLOUD_KEY = 'roommate_chore_manager_cloud_registry_v2';
+
+function getSharedCloudRegistry() {
+  if (typeof window === 'undefined') return { houses: [], house_members: [], chores: [], assignments: [], completion_events: [], attention_requests: [] };
+  try {
+    const raw = localStorage.getItem(SHARED_CLOUD_KEY);
+    if (!raw) return { houses: [], house_members: [], chores: [], assignments: [], completion_events: [], attention_requests: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      houses: Array.isArray(parsed.houses) ? parsed.houses : [],
+      house_members: Array.isArray(parsed.house_members) ? parsed.house_members : [],
+      chores: Array.isArray(parsed.chores) ? parsed.chores : [],
+      assignments: Array.isArray(parsed.assignments) ? parsed.assignments : [],
+      completion_events: Array.isArray(parsed.completion_events) ? parsed.completion_events : [],
+      attention_requests: Array.isArray(parsed.attention_requests) ? parsed.attention_requests : [],
+    };
+  } catch (e) {
+    return { houses: [], house_members: [], chores: [], assignments: [], completion_events: [], attention_requests: [] };
+  }
+}
+
+function updateSharedCloudRegistry(updaterFn) {
+  if (typeof window === 'undefined') return;
+  try {
+    const current = getSharedCloudRegistry();
+    const next = updaterFn(current);
+    localStorage.setItem(SHARED_CLOUD_KEY, JSON.stringify(next));
+  } catch (e) {
+    console.warn('[Shared Cloud Registry Error]', e);
+  }
+}
 
 const INITIAL_DB = {
   users: [],
@@ -103,10 +135,34 @@ class Store {
           return ce;
         });
 
+      const cloud = getSharedCloudRegistry();
+
+      const mergedHousesMap = new Map();
+      (parsed.houses || []).forEach((h) => mergedHousesMap.set(h.id, h));
+      (cloud.houses || []).forEach((h) => {
+        if (!mergedHousesMap.has(h.id)) mergedHousesMap.set(h.id, h);
+        else {
+          const existing = mergedHousesMap.get(h.id);
+          if (h.invite_code) existing.invite_code = h.invite_code;
+          if (h.name) existing.name = h.name;
+        }
+      });
+
+      const mergedMembersMap = new Map();
+      (parsed.house_members || []).forEach((m) => mergedMembersMap.set(m.id, m));
+      (cloud.house_members || []).forEach((m) => {
+        if (!mergedMembersMap.has(m.id)) mergedMembersMap.set(m.id, m);
+        else {
+          const existing = mergedMembersMap.get(m.id);
+          if (m.is_active !== undefined) existing.is_active = m.is_active;
+          if (m.role) existing.role = m.role;
+        }
+      });
+
       return {
         users: Array.isArray(parsed.users) ? parsed.users : [],
-        houses: Array.isArray(parsed.houses) ? parsed.houses : [],
-        house_members: Array.isArray(parsed.house_members) ? parsed.house_members : [],
+        houses: Array.from(mergedHousesMap.values()),
+        house_members: Array.from(mergedMembersMap.values()),
         chores: rawChores,
         weekly_schedules: Array.isArray(parsed.weekly_schedules) ? parsed.weekly_schedules : [],
         assignments: rawAssignments,
@@ -239,6 +295,17 @@ class Store {
     db.houses.push(newHouse);
     db.house_members.push(initialMember);
     this.saveRawData(db);
+
+    // Sync to Shared Cloud Registry
+    updateSharedCloudRegistry((cloud) => ({
+      ...cloud,
+      houses: [...cloud.houses.filter((h) => h.id !== houseId), newHouse],
+      house_members: [...cloud.house_members.filter((m) => m.id !== initialMember.id), initialMember],
+    }));
+
+    // Sync to Supabase Database
+    dbCreateHouse(newHouse);
+    dbCreateMember(initialMember);
 
     this.setActiveHouseId(houseId);
     this.getOrCreateCurrentSchedule(houseId);
@@ -398,12 +465,53 @@ class Store {
     return null;
   }
 
-  joinHouseByCode(inviteCode, userId) {
+  async joinHouseByCode(inviteCode, userId) {
     const db = this.getRawData();
     const cleanCode = (inviteCode || '').trim().toUpperCase();
     if (!cleanCode) throw new Error('Please enter a valid house code.');
 
-    const house = db.houses.find((h) => (h.invite_code || '').toUpperCase() === cleanCode);
+    // 1. Search local DB
+    let house = db.houses.find((h) => (h.invite_code || '').toUpperCase() === cleanCode);
+
+    // 2. Search Shared Cloud Registry
+    if (!house) {
+      const cloud = getSharedCloudRegistry();
+      house = cloud.houses.find((h) => (h.invite_code || '').toUpperCase() === cleanCode);
+      if (house) {
+        if (!db.houses.some((h) => h.id === house.id)) {
+          db.houses.push(house);
+        }
+        const cloudMembers = cloud.house_members.filter((m) => m.house_id === house.id);
+        cloudMembers.forEach((m) => {
+          if (!db.house_members.some((hm) => hm.id === m.id)) {
+            db.house_members.push(m);
+          }
+        });
+      }
+    }
+
+    // 3. Search Supabase Database
+    if (!house) {
+      const fetched = await dbFetchHouseByCode(cleanCode);
+      if (fetched) {
+        house = fetched;
+        if (!db.houses.some((h) => h.id === house.id)) {
+          db.houses.push(house);
+        }
+        const houseData = await dbFetchHouseData(house.id);
+        if (houseData) {
+          (houseData.members || []).forEach((m) => {
+            if (!db.house_members.some((hm) => hm.id === m.id)) db.house_members.push(m);
+          });
+          (houseData.chores || []).forEach((c) => {
+            if (!db.chores.some((ch) => ch.id === c.id)) db.chores.push(c);
+          });
+          (houseData.assignments || []).forEach((a) => {
+            if (!db.assignments.some((as) => as.id === a.id)) db.assignments.push(a);
+          });
+        }
+      }
+    }
 
     if (!house) {
       throw new Error(`House code "${cleanCode}" not found. Please verify the code and try again.`);
@@ -432,6 +540,15 @@ class Store {
     }
 
     this.saveRawData(db);
+
+    // Sync membership to Shared Cloud Registry and Supabase
+    updateSharedCloudRegistry((cloud) => ({
+      ...cloud,
+      houses: [...cloud.houses.filter((h) => h.id !== house.id), house],
+      house_members: [...cloud.house_members.filter((m) => m.id !== member.id), member],
+    }));
+    dbCreateMember(member);
+
     this.setActiveHouseId(house.id);
     this.getOrCreateCurrentSchedule(house.id);
     return house;
