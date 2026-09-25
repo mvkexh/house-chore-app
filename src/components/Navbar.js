@@ -37,6 +37,7 @@ export default function Navbar({
   onOpenEditHouse,
   onOpenProfile,
   unreadNotifCount,
+  onShowToast,
 }) {
   const [isCopied, setIsCopied] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(THEMES.SYSTEM);
@@ -96,6 +97,7 @@ export default function Navbar({
     if (!activeHouse) return;
     navigator.clipboard.writeText(activeHouse.invite_code);
     setIsCopied(true);
+    onShowToast?.({ type: 'success', message: `House code "${activeHouse.invite_code}" copied to clipboard!` });
     setTimeout(() => setIsCopied(false), 2000);
   };
 

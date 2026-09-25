@@ -53,11 +53,13 @@ export default function Home() {
       if (user) {
         const googleProfile = {
           id: user.uid,
-          email: user.email || 'user@example.com',
-          full_name: user.displayName || user.email?.split('@')[0] || 'Roommate User',
+          email: user.email,
+          full_name: user.displayName || user.email?.split('@')[0] || '',
           avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
         };
         store.loginWithGoogle(googleProfile);
+      } else {
+        store.clearCurrentUserIfUnauthenticated();
       }
     });
 
@@ -170,6 +172,7 @@ export default function Home() {
         }}
         onOpenProfile={() => setShowProfileModal(true)}
         unreadNotifCount={unreadNotifCount}
+        onShowToast={showToast}
       />
 
       {/* Main Content Area */}

@@ -245,6 +245,12 @@ class Store {
     this.notify();
   }
 
+  clearCurrentUserIfUnauthenticated() {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(CURRENT_USER_KEY);
+    this.notify();
+  }
+
   updateUserProfile(userId, { full_name, avatar_url, has_chosen_name }) {
     const db = this.getRawData();
     const user = db.users.find((u) => u.id === userId);
