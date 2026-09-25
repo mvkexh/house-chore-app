@@ -55,6 +55,12 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export async function signInWithGoogle() {
   if (typeof window === 'undefined') return;
 
+  if (!isFirebaseConfigured()) {
+    throw new Error(
+      'Firebase Auth Configuration Error: Invalid or missing API Key. Please configure NEXT_PUBLIC_FIREBASE_API_KEY and NEXT_PUBLIC_FIREBASE_PROJECT_ID environment variables in your environment configuration.'
+    );
+  }
+
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
 
