@@ -20,6 +20,7 @@ const INITIAL_DB = {
   absences: [],
   reminders: [],
   notifications: [],
+  house_holidays: [],
 };
 
 export function getWeekDetails(dateInput = new Date()) {
@@ -62,7 +63,60 @@ class Store {
     if (typeof window === 'undefined') return INITIAL_DB;
     try {
       const data = localStorage.getItem(STORAGE_KEY);
-      return data ? JSON.parse(data) : INITIAL_DB;
+      if (!data) return INITIAL_DB;
+      const parsed = JSON.parse(data);
+
+      const rawChores = Array.isArray(parsed.chores) ? parsed.chores : [];
+      const rawAssignments = Array.isArray(parsed.assignments) ? parsed.assignments : [];
+      const choresMap = new Map(rawChores.map((c) => [c.id, c]));
+      const assignmentsMap = new Map(rawAssignments.map((a) => [a.id, a]));
+
+      // Sanitize completion_events: purge events before chore created_at or orphaned events
+      const rawCompletions = Array.isArray(parsed.completion_events) ? parsed.completion_events : [];
+      const sanitizedCompletions = rawCompletions
+        .filter((ce) => {
+          if (!ce || !ce.chore_id) return false;
+          const chore = choresMap.get(ce.chore_id);
+          if (!chore) return false; // Orphaned record for deleted chore
+
+          // Check timestamp: completion cannot occur before chore was created
+          if (chore.created_at && ce.timestamp) {
+            const ceTime = new Date(ce.timestamp).getTime();
+            const choreTime = new Date(chore.created_at).getTime();
+            if (ceTime < choreTime - 60000) return false; // Purge invalid pre-creation test completions
+          }
+          return true;
+        })
+        .map((ce) => {
+          // Strict rule: "TOGETHER" MUST have at least 2 distinct participants
+          const participants = Array.isArray(ce.participants) ? ce.participants : [ce.completed_by_user_id];
+          const participantNames = Array.isArray(ce.participant_names) ? ce.participant_names : [ce.completed_by_name];
+          if (ce.completion_type === 'TOGETHER' && (participantNames.length < 2 || participants.length < 2)) {
+            return {
+              ...ce,
+              completion_type: 'ALONE',
+              completed_by_name: participantNames[0] || ce.completed_by_name || 'Roommate',
+              participant_names: [participantNames[0] || ce.completed_by_name || 'Roommate'],
+              participants: [ce.completed_by_user_id],
+            };
+          }
+          return ce;
+        });
+
+      return {
+        users: Array.isArray(parsed.users) ? parsed.users : [],
+        houses: Array.isArray(parsed.houses) ? parsed.houses : [],
+        house_members: Array.isArray(parsed.house_members) ? parsed.house_members : [],
+        chores: rawChores,
+        weekly_schedules: Array.isArray(parsed.weekly_schedules) ? parsed.weekly_schedules : [],
+        assignments: rawAssignments,
+        completion_events: sanitizedCompletions,
+        attention_requests: Array.isArray(parsed.attention_requests) ? parsed.attention_requests : [],
+        absences: Array.isArray(parsed.absences) ? parsed.absences : [],
+        reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
+        notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+        house_holidays: Array.isArray(parsed.house_holidays) ? parsed.house_holidays : [],
+      };
     } catch (e) {
       console.error('Failed to parse storage:', e);
       return INITIAL_DB;
@@ -192,42 +246,194 @@ class Store {
     return newHouse;
   }
 
-  joinHouseByCode(inviteCode, userId) {
+  updateHouseName(houseId, newName) {
     const db = this.getRawData();
-    const cleanCode = inviteCode.trim().toUpperCase();
-    const house = db.houses.find((h) => h.invite_code === cleanCode);
+    const house = db.houses.find((h) => h.id === houseId);
+    if (!house) throw new Error('House not found.');
+    const cleanName = newName.trim();
+    if (!cleanName) throw new Error('House name cannot be empty.');
 
-    if (!house) {
-      throw new Error('Invalid house code. Please verify code.');
+    house.name = cleanName;
+    this.saveRawData(db);
+    return house;
+  }
+
+  regenerateHouseCode(houseId) {
+    const db = this.getRawData();
+    const house = db.houses.find((h) => h.id === houseId);
+    if (!house) throw new Error('House not found.');
+    const newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    house.invite_code = newCode;
+    this.saveRawData(db);
+    return newCode;
+  }
+
+  leaveHouse(houseId, userId) {
+    const db = this.getRawData();
+    const houseMembers = db.house_members.filter((hm) => hm.house_id === houseId && hm.is_active !== false);
+    const member = houseMembers.find((hm) => hm.user_id === userId);
+    if (!member) throw new Error('You are not an active member of this house.');
+
+    const isAdmin = member.role === ROLES.ADMIN || member.role === 'ADMIN';
+    const otherActiveMembers = houseMembers.filter((hm) => hm.user_id !== userId);
+
+    if (isAdmin && otherActiveMembers.length > 0) {
+      const otherAdmins = otherActiveMembers.filter((hm) => hm.role === ROLES.ADMIN || hm.role === 'ADMIN');
+      if (otherAdmins.length === 0) {
+        throw new Error('You are the only Admin of this house. Please promote another member to Admin before leaving.');
+      }
     }
 
-    const existingMember = db.house_members.find(
+    // Deactivate membership record without deleting historical data
+    member.is_active = false;
+    member.left_at = new Date().toISOString();
+
+    this.saveRawData(db);
+
+    const userActiveHouses = this.getUserHouses(userId);
+    if (userActiveHouses.length > 0) {
+      this.setActiveHouseId(userActiveHouses[0].id);
+    } else {
+      localStorage.removeItem(ACTIVE_HOUSE_KEY);
+    }
+
+    this.notify();
+  }
+
+  deleteHouse(houseId, userId) {
+    const db = this.getRawData();
+    const house = db.houses.find((h) => h.id === houseId);
+    if (!house) throw new Error('House not found.');
+
+    const member = db.house_members.find((hm) => hm.house_id === houseId && hm.user_id === userId);
+    const isAdmin = house.created_by === userId || member?.role === ROLES.ADMIN || member?.role === 'ADMIN';
+    if (!isAdmin) throw new Error('Permission denied: Only a House Admin can delete this house.');
+
+    db.houses = db.houses.filter((h) => h.id !== houseId);
+    db.house_members = db.house_members.filter((hm) => hm.house_id !== houseId);
+    db.chores = db.chores.filter((c) => c.house_id !== houseId);
+    db.weekly_schedules = db.weekly_schedules.filter((ws) => ws.house_id !== houseId);
+    db.assignments = db.assignments.filter((a) => a.house_id !== houseId);
+    db.completion_events = db.completion_events.filter((ce) => ce.house_id !== houseId);
+    db.attention_requests = db.attention_requests.filter((ar) => ar.house_id !== houseId);
+    db.absences = db.absences.filter((ab) => ab.house_id !== houseId);
+    db.reminders = db.reminders.filter((r) => r.house_id !== houseId);
+    db.notifications = db.notifications.filter((n) => n.house_id !== houseId);
+    if (db.house_holidays) {
+      db.house_holidays = db.house_holidays.filter((hh) => hh.house_id !== houseId);
+    }
+
+    this.saveRawData(db);
+
+    const userActiveHouses = this.getUserHouses(userId);
+    if (userActiveHouses.length > 0) {
+      this.setActiveHouseId(userActiveHouses[0].id);
+    } else {
+      localStorage.removeItem(ACTIVE_HOUSE_KEY);
+    }
+
+    this.notify();
+  }
+
+  // --- HOUSE HOLIDAYS ---
+  getHouseHolidays(houseId) {
+    const db = this.getRawData();
+    return (db.house_holidays || [])
+      .filter((h) => h.house_id === houseId)
+      .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+  }
+
+  createHouseHoliday(houseId, { startDate, endDate, reason }, createdByUserId) {
+    const db = this.getRawData();
+    if (!startDate || !endDate) {
+      throw new Error('Start date and end date are required for house holiday.');
+    }
+    if (new Date(endDate) < new Date(startDate)) {
+      throw new Error('End date cannot be before start date.');
+    }
+
+    const newHoliday = {
+      id: 'hol_' + Math.random().toString(36).substring(2, 9),
+      house_id: houseId,
+      start_date: startDate,
+      end_date: endDate,
+      reason: (reason || 'House Holiday').trim(),
+      created_by: createdByUserId,
+      created_at: new Date().toISOString(),
+    };
+
+    if (!db.house_holidays) db.house_holidays = [];
+    db.house_holidays.push(newHoliday);
+    this.saveRawData(db);
+    this.notify();
+    return newHoliday;
+  }
+
+  deleteHouseHoliday(holidayId) {
+    const db = this.getRawData();
+    if (!db.house_holidays) return;
+    db.house_holidays = db.house_holidays.filter((h) => h.id !== holidayId);
+    this.saveRawData(db);
+    this.notify();
+  }
+
+  isDateInHouseHoliday(houseId, dateInput = new Date()) {
+    const db = this.getRawData();
+    const holidays = (db.house_holidays || []).filter((h) => h.house_id === houseId);
+    if (holidays.length === 0) return null;
+
+    const targetDateStr = typeof dateInput === 'string'
+      ? dateInput.split('T')[0]
+      : new Date(dateInput).toISOString().split('T')[0];
+
+    const targetTime = new Date(targetDateStr).getTime();
+
+    for (const hol of holidays) {
+      const startTime = new Date(hol.start_date).getTime();
+      const endTime = new Date(hol.end_date).getTime();
+      if (targetTime >= startTime && targetTime <= endTime) {
+        return hol;
+      }
+    }
+    return null;
+  }
+
+  joinHouseByCode(inviteCode, userId) {
+    const db = this.getRawData();
+    const cleanCode = (inviteCode || '').trim().toUpperCase();
+    if (!cleanCode) throw new Error('Please enter a valid house code.');
+
+    const house = db.houses.find((h) => (h.invite_code || '').toUpperCase() === cleanCode);
+
+    if (!house) {
+      throw new Error(`House code "${cleanCode}" not found. Please verify the code and try again.`);
+    }
+
+    let member = db.house_members.find(
       (hm) => hm.house_id === house.id && hm.user_id === userId
     );
 
-    if (existingMember) {
-      if (!existingMember.is_active) {
-        existingMember.is_active = true;
-        this.saveRawData(db);
+    if (member) {
+      if (!member.is_active) {
+        member.is_active = true;
       }
-      this.setActiveHouseId(house.id);
-      return house;
+    } else {
+      const user = db.users.find((u) => u.id === userId);
+      member = {
+        id: 'hm_' + Math.random().toString(36).substring(2, 9),
+        house_id: house.id,
+        user_id: userId,
+        display_name: user ? user.full_name : 'Member',
+        role: ROLES.MEMBER,
+        is_active: true,
+        joined_at: new Date().toISOString(),
+      };
+      db.house_members.push(member);
     }
 
-    const user = db.users.find((u) => u.id === userId);
-    const newMember = {
-      id: 'hm_' + Math.random().toString(36).substring(2, 9),
-      house_id: house.id,
-      user_id: userId,
-      display_name: user ? user.full_name : 'Member',
-      role: ROLES.MEMBER,
-      is_active: true,
-      joined_at: new Date().toISOString(),
-    };
-
-    db.house_members.push(newMember);
     this.saveRawData(db);
     this.setActiveHouseId(house.id);
+    this.getOrCreateCurrentSchedule(house.id);
     return house;
   }
 
@@ -235,6 +441,65 @@ class Store {
   getHouseMembers(houseId) {
     const db = this.getRawData();
     return db.house_members.filter((hm) => hm.house_id === houseId);
+  }
+
+  updateMemberRole(houseMemberId, newRole) {
+    const db = this.getRawData();
+    const member = db.house_members.find((hm) => hm.id === houseMemberId);
+    if (member) {
+      // Prevent demoting last admin if other members exist
+      if (newRole === ROLES.MEMBER || newRole === 'MEMBER') {
+        const activeMembers = db.house_members.filter((hm) => hm.house_id === member.house_id && hm.is_active !== false);
+        const activeAdmins = activeMembers.filter((hm) => hm.role === ROLES.ADMIN || hm.role === 'ADMIN');
+        if (activeAdmins.length <= 1 && activeAdmins.some((a) => a.id === houseMemberId)) {
+          throw new Error('Cannot demote the last Admin of the house. Promote another member first.');
+        }
+      }
+      member.role = newRole;
+      this.saveRawData(db);
+      this.notify();
+    }
+  }
+
+  promoteMemberToAdmin(houseMemberId) {
+    this.updateMemberRole(houseMemberId, ROLES.ADMIN);
+  }
+
+  demoteAdminToMember(houseMemberId) {
+    this.updateMemberRole(houseMemberId, ROLES.MEMBER);
+  }
+
+  getMemberReportData(userId, houseId) {
+    const db = this.getRawData();
+    const houseChores = (db.chores || []).filter((c) => c.house_id === houseId);
+    const choresMap = new Map();
+    houseChores.forEach((c) => choresMap.set(c.id, c));
+
+    const userAssignments = (db.assignments || []).filter(
+      (a) => a.house_id === houseId && (a.actual_member_ids || []).includes(userId)
+    );
+
+    const upcomingAssignments = userAssignments.filter(
+      (a) => a.status === RESPONSIBILITY_STATUS.PENDING
+    );
+
+    const userCompletions = (db.completion_events || []).filter(
+      (ce) => ce.house_id === houseId && ce.completed_by_user_id === userId
+    ).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    const userAttentionReports = (db.attention_requests || []).filter(
+      (ar) =>
+        ar.house_id === houseId &&
+        (ar.reported_by_user_id === userId || ar.resolved_by_user_id === userId)
+    ).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    return {
+      upcomingAssignments,
+      userCompletions,
+      userAttentionReports,
+      allUserAssignments: userAssignments,
+      choresMap,
+    };
   }
 
   updateMemberDisplayName(houseMemberId, displayName) {
@@ -289,10 +554,20 @@ class Store {
 
   createChore(houseId, choreData, createdByUserId) {
     const db = this.getRawData();
+
+    // Map sub_items array of strings or objects to structured sub_items array
+    const rawSubItems = Array.isArray(choreData.sub_items) ? choreData.sub_items : [];
+    const formattedSubItems = rawSubItems.map((item, idx) => {
+      if (typeof item === 'string') {
+        return { id: `sub_${Math.random().toString(36).substring(2, 9)}`, name: item.trim() };
+      }
+      return { id: item.id || `sub_${Math.random().toString(36).substring(2, 9)}`, name: (item.name || item.title || `Area ${idx + 1}`).trim() };
+    }).filter(item => item.name);
+
     const newChore = {
       id: 'chore_' + Math.random().toString(36).substring(2, 9),
       house_id: houseId,
-      title: choreData.title,
+      title: choreData.title.trim(),
       description: choreData.description || '',
       created_by: createdByUserId,
       chore_type: choreData.chore_type || CHORE_TYPES.REPEAT_ON_DEMAND,
@@ -303,6 +578,13 @@ class Store {
       start_date: choreData.start_date || new Date().toISOString().split('T')[0],
       end_date: choreData.end_date || null,
       notes: choreData.notes || '',
+      sub_items: formattedSubItems,
+      daily_reminder_enabled: !!choreData.daily_reminder_enabled,
+      daily_reminder_time: choreData.daily_reminder_time || '19:00',
+      assignment_preference_type: choreData.assignment_preference_type || ASSIGNMENT_PREFERENCES.AUTOMATIC,
+      preference_chore_id: choreData.preference_chore_id || null,
+      preferred_user_ids: Array.isArray(choreData.preferred_user_ids) ? choreData.preferred_user_ids : [],
+      avoid_user_ids: Array.isArray(choreData.avoid_user_ids) ? choreData.avoid_user_ids : [],
       is_active: true,
       created_at: new Date().toISOString(),
     };
@@ -311,6 +593,46 @@ class Store {
     this.saveRawData(db);
     this.regenerateCurrentSchedule(houseId);
     return newChore;
+  }
+
+  updateChore(choreId, choreData) {
+    const db = this.getRawData();
+    const chore = db.chores.find((c) => c.id === choreId);
+    if (!chore) throw new Error('Chore not found.');
+
+    if (choreData.title !== undefined) chore.title = choreData.title.trim();
+    if (choreData.description !== undefined) chore.description = choreData.description.trim();
+    if (choreData.chore_type !== undefined) chore.chore_type = choreData.chore_type;
+    if (choreData.frequency !== undefined) chore.frequency = choreData.frequency;
+    if (choreData.required_people_count !== undefined) chore.required_people_count = parseInt(choreData.required_people_count) || 1;
+    if (choreData.schedule_day !== undefined) chore.schedule_day = choreData.schedule_day;
+    if (choreData.schedule_time !== undefined) chore.schedule_time = choreData.schedule_time;
+    if (choreData.notes !== undefined) chore.notes = choreData.notes;
+
+    if (choreData.sub_items !== undefined) {
+      const rawSubItems = Array.isArray(choreData.sub_items) ? choreData.sub_items : [];
+      chore.sub_items = rawSubItems.map((item, idx) => {
+        if (typeof item === 'string') {
+          return { id: `sub_${Math.random().toString(36).substring(2, 9)}`, name: item.trim() };
+        }
+        return {
+          id: item.id || `sub_${Math.random().toString(36).substring(2, 9)}`,
+          name: (item.name || item.title || `Area ${idx + 1}`).trim(),
+        };
+      }).filter((item) => item.name);
+    }
+
+    if (choreData.daily_reminder_enabled !== undefined) chore.daily_reminder_enabled = !!choreData.daily_reminder_enabled;
+    if (choreData.daily_reminder_time !== undefined) chore.daily_reminder_time = choreData.daily_reminder_time;
+
+    if (choreData.assignment_preference_type !== undefined) chore.assignment_preference_type = choreData.assignment_preference_type;
+    if (choreData.preference_chore_id !== undefined) chore.preference_chore_id = choreData.preference_chore_id;
+    if (choreData.preferred_user_ids !== undefined) chore.preferred_user_ids = Array.isArray(choreData.preferred_user_ids) ? choreData.preferred_user_ids : [];
+    if (choreData.avoid_user_ids !== undefined) chore.avoid_user_ids = Array.isArray(choreData.avoid_user_ids) ? choreData.avoid_user_ids : [];
+
+    this.saveRawData(db);
+    this.regenerateCurrentSchedule(chore.house_id);
+    return chore;
   }
 
   deleteChore(choreId) {
@@ -398,25 +720,123 @@ class Store {
     return generatedAssignments;
   }
 
-  markAssignmentCompleted(assignmentId, userId) {
+  markAssignmentCompleted(assignmentId, userId, completionType = 'TOGETHER', participantIds = null, subItemInput = null) {
     const db = this.getRawData();
     const assignment = db.assignments.find((a) => a.id === assignmentId);
     if (!assignment) return;
 
-    assignment.status = RESPONSIBILITY_STATUS.COMPLETED;
+    // Strict Permission Enforcement: User must be in actual_member_ids OR house Admin
+    const member = db.house_members.find((hm) => hm.house_id === assignment.house_id && hm.user_id === userId);
+    const house = db.houses.find((h) => h.id === assignment.house_id);
+    const isAssigned = (assignment.actual_member_ids || []).includes(userId);
+    const isAdmin = house?.created_by === userId || member?.role === ROLES.ADMIN || member?.role === 'ADMIN';
+
+    if (!isAssigned && !isAdmin) {
+      throw new Error('Permission Denied: Only assigned team members or house Admins can mark this chore completed.');
+    }
+
+    const chore = db.chores.find((c) => c.id === assignment.chore_id);
+    const subItems = chore?.sub_items || [];
+
+    // Normalize subItemInput to array of subItem objects
+    let targetSubItems = [];
+    if (Array.isArray(subItemInput)) {
+      targetSubItems = subItems.filter((s) => subItemInput.includes(s.id));
+    } else if (typeof subItemInput === 'string' && subItemInput) {
+      if (subItemInput === 'ALL') {
+        targetSubItems = [...subItems];
+      } else {
+        const found = subItems.find((s) => s.id === subItemInput);
+        if (found) targetSubItems = [found];
+      }
+    }
+
+    if (targetSubItems.length === 0 && subItems.length > 0) {
+      targetSubItems = [...subItems];
+    }
+
     assignment.completion_count = (assignment.completion_count || 0) + 1;
 
+    // Check if all sub-items are completed now
+    const thisAssignmentCompletions = db.completion_events.filter((ce) => ce.assignment_id === assignmentId);
+    const completedSubIds = new Set(thisAssignmentCompletions.map((ce) => ce.sub_item_id).filter(Boolean));
+    (thisAssignmentCompletions.flatMap((ce) => ce.sub_item_ids || [])).forEach((id) => completedSubIds.add(id));
+    targetSubItems.forEach((s) => completedSubIds.add(s.id));
+
+    if (subItems.length === 0 || subItems.every((s) => completedSubIds.has(s.id))) {
+      assignment.status = RESPONSIBILITY_STATUS.COMPLETED;
+    }
+
     const user = db.users.find((u) => u.id === userId);
-    const member = db.house_members.find((hm) => hm.user_id === userId);
     const userName = member ? member.display_name : user ? user.full_name : 'Roommate';
 
+    // Determine participants & completion_type
+    let participants = [];
+    if (completionType === 'TOGETHER') {
+      const candidateParticipants = Array.isArray(participantIds) && participantIds.length >= 2
+        ? participantIds
+        : (assignment.actual_member_ids || []);
+
+      const uniqueParticipants = Array.from(new Set(candidateParticipants));
+      if (uniqueParticipants.length < 2) {
+        completionType = 'ALONE';
+        participants = [userId];
+      } else {
+        participants = uniqueParticipants;
+      }
+    } else {
+      completionType = 'ALONE';
+      participants = [userId];
+    }
+
+    const participantNames = participants.map((uid) => {
+      const m = db.house_members.find((hm) => hm.house_id === assignment.house_id && hm.user_id === uid);
+      const u = db.users.find((usr) => usr.id === uid);
+      return m ? m.display_name : u ? u.full_name : 'Roommate';
+    });
+
+    const completedByName = completionType === 'TOGETHER'
+      ? participantNames.join(' + ')
+      : userName;
+
+    const subItemNamesList = targetSubItems.map((s) => s.name);
+    let combinedSubItemLabel = null;
+    if (subItemNamesList.length > 0) {
+      if (subItems.length > 1 && subItemNamesList.length === subItems.length) {
+        combinedSubItemLabel = `all ${chore?.title || 'chore'} areas`;
+      } else {
+        combinedSubItemLabel = subItemNamesList.join(' + ');
+      }
+    }
+
+    // RESOLVE ACTIVE ATTENTION REQUESTS FOR THESE SUB-ITEMS
+    const targetSubIds = new Set(targetSubItems.map((s) => s.id));
+    db.attention_requests.forEach((ar) => {
+      if (ar.assignment_id === assignmentId && !ar.is_resolved) {
+        if (!ar.sub_item_id || targetSubIds.has(ar.sub_item_id) || targetSubItems.length === 0) {
+          ar.is_resolved = true;
+          ar.resolved_at = new Date().toISOString();
+          ar.resolved_by_user_id = userId;
+          ar.resolved_by_name = userName;
+        }
+      }
+    });
+
+    // Save completion event
     db.completion_events.push({
       id: 'comp_' + Math.random().toString(36).substring(2, 9),
       assignment_id: assignmentId,
       house_id: assignment.house_id,
       chore_id: assignment.chore_id,
+      sub_item_id: targetSubItems.length === 1 ? targetSubItems[0].id : null,
+      sub_item_ids: targetSubItems.map((s) => s.id),
+      sub_item_name: combinedSubItemLabel,
+      sub_item_names: subItemNamesList,
       completed_by_user_id: userId,
-      completed_by_name: userName,
+      completed_by_name: completedByName,
+      completion_type: completionType, // 'ALONE' or 'TOGETHER'
+      participants: participants,
+      participant_names: participantNames,
       week_number: assignment.week_number,
       year: assignment.year,
       timestamp: new Date().toISOString(),
@@ -425,7 +845,7 @@ class Store {
     this.saveRawData(db);
   }
 
-  reportChoreNeedsAttention(assignmentId, reporterUserId, reason = 'Needs attention / Bin full') {
+  reportChoreNeedsAttention(assignmentId, reporterUserId, reason = 'Needs attention / Bin full', subItemInput = null) {
     const db = this.getRawData();
     const assignment = db.assignments.find((a) => a.id === assignmentId);
     if (!assignment) return;
@@ -436,8 +856,32 @@ class Store {
     const member = db.house_members.find((hm) => hm.user_id === reporterUserId);
     const reporterName = member ? member.display_name : user ? user.full_name : 'Roommate';
 
+    const chore = db.chores.find((c) => c.id === assignment.chore_id);
+    const choreTitle = chore ? chore.title : 'Chore';
+    const subItems = chore?.sub_items || [];
+
+    let targetSubItems = [];
+    if (Array.isArray(subItemInput)) {
+      targetSubItems = subItems.filter((s) => subItemInput.includes(s.id));
+    } else if (typeof subItemInput === 'string' && subItemInput) {
+      if (subItemInput === 'ALL') {
+        targetSubItems = [...subItems];
+      } else {
+        const found = subItems.find((s) => s.id === subItemInput);
+        if (found) targetSubItems = [found];
+      }
+    }
+
+    const subItemNamesList = targetSubItems.map((s) => s.name);
+    let combinedLabel = subItemNamesList.length > 0
+      ? (subItems.length > 1 && subItemNamesList.length === subItems.length ? `all ${choreTitle} areas` : subItemNamesList.join(' + '))
+      : null;
+
     const existingReq = db.attention_requests.find(
-      (ar) => ar.assignment_id === assignmentId && ar.is_resolved !== true
+      (ar) =>
+        ar.assignment_id === assignmentId &&
+        ar.is_resolved !== true &&
+        (!combinedLabel || ar.sub_item_name === combinedLabel)
     );
 
     if (existingReq) {
@@ -450,18 +894,21 @@ class Store {
         assignment_id: assignmentId,
         house_id: assignment.house_id,
         chore_id: assignment.chore_id,
+        sub_item_id: targetSubItems.length === 1 ? targetSubItems[0].id : null,
+        sub_item_ids: targetSubItems.map((s) => s.id),
+        sub_item_name: combinedLabel,
         reported_by_user_id: reporterUserId,
         reporter_names: [reporterName],
         week_number: assignment.week_number,
         year: assignment.year,
-        reason: reason,
+        reason: combinedLabel ? `${combinedLabel} — ${reason}` : reason,
         is_resolved: false,
         timestamp: new Date().toISOString(),
       });
     }
 
-    const chore = db.chores.find((c) => c.id === assignment.chore_id);
-    const choreTitle = chore ? chore.title : 'Chore';
+    const notifTitle = combinedLabel ? `${choreTitle} (${combinedLabel}) Needs Attention` : `${choreTitle} Needs Attention`;
+    const notifMsg = `${reporterName} reported that ${combinedLabel ? `"${combinedLabel}" in ` : ''}"${choreTitle}" needs attention.`;
 
     (assignment.actual_member_ids || []).forEach((workerId) => {
       if (workerId !== reporterUserId) {
@@ -469,8 +916,8 @@ class Store {
           id: 'notif_' + Math.random().toString(36).substring(2, 9),
           user_id: workerId,
           house_id: assignment.house_id,
-          title: `${choreTitle} Needs Attention`,
-          message: `${reporterName} reported that "${choreTitle}" needs attention.`,
+          title: notifTitle,
+          message: notifMsg,
           is_read: false,
           created_at: new Date().toISOString(),
         });
@@ -478,6 +925,50 @@ class Store {
     });
 
     this.saveRawData(db);
+  }
+
+  createSpecificDateReminder(houseId, choreId, subItemId, targetUserIds, remindDateStr, remindTimeStr, note, createdByUserId) {
+    const db = this.getRawData();
+    const chore = db.chores.find((c) => c.id === choreId);
+    if (!chore) return;
+
+    const subItem = (chore.sub_items || []).find((s) => s.id === subItemId);
+    const creatorUser = db.users.find((u) => u.id === createdByUserId);
+    const creatorName = creatorUser ? creatorUser.full_name : 'Roommate';
+
+    const newReminder = {
+      id: 'rem_' + Math.random().toString(36).substring(2, 9),
+      house_id: houseId,
+      chore_id: choreId,
+      chore_title: chore.title,
+      sub_item_id: subItemId || null,
+      sub_item_name: subItem ? subItem.name : null,
+      target_user_ids: Array.isArray(targetUserIds) ? targetUserIds : [],
+      remind_date: remindDateStr, // YYYY-MM-DD
+      remind_time: remindTimeStr || '18:00',
+      note: note || '',
+      created_by_user_id: createdByUserId,
+      created_by_name: creatorName,
+      created_at: new Date().toISOString(),
+    };
+
+    db.reminders.push(newReminder);
+
+    // Send notification to target users
+    (targetUserIds || []).forEach((uid) => {
+      db.notifications.push({
+        id: 'notif_' + Math.random().toString(36).substring(2, 9),
+        user_id: uid,
+        house_id: houseId,
+        title: `Reminder Scheduled: ${chore.title}`,
+        message: `${creatorName} set a reminder for "${chore.title}${subItem ? ` - ${subItem.name}` : ''}" on ${remindDateStr} at ${remindTimeStr || '18:00'}. ${note ? `Note: "${note}"` : ''}`,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+    });
+
+    this.saveRawData(db);
+    return newReminder;
   }
 
   sendNotificationToTeam(assignmentId, senderUserId) {
@@ -504,6 +995,144 @@ class Store {
     });
 
     this.saveRawData(db);
+  }
+
+  updateCompletionEvent(eventId, editorUserId, updateData = {}) {
+    const db = this.getRawData();
+    const event = db.completion_events.find((ce) => ce.id === eventId);
+    if (!event) throw new Error('Completion event not found.');
+
+    const assignment = db.assignments.find((a) => a.id === event.assignment_id);
+    const house = db.houses.find((h) => h.id === event.house_id);
+    const editorMember = db.house_members.find((hm) => hm.house_id === event.house_id && hm.user_id === editorUserId);
+    const isAdmin = house?.created_by === editorUserId || editorMember?.role === ROLES.ADMIN || editorMember?.role === 'ADMIN';
+
+    // Check week window
+    const currentSched = this.getOrCreateCurrentSchedule(event.house_id);
+    const isCurrentWeek = currentSched.week_number === event.week_number && currentSched.year === event.year;
+
+    const isSubmitter = event.completed_by_user_id === editorUserId;
+    const isParticipant = Array.isArray(event.participants) && event.participants.includes(editorUserId);
+
+    if (!isAdmin && !isCurrentWeek) {
+      throw new Error('Permission Denied: Historical completion records cannot be edited after the responsibility week has ended.');
+    }
+
+    if (!isAdmin && !isSubmitter && !isParticipant) {
+      throw new Error('Permission Denied: Only the submitter, participating members, or House Admin can edit this completion event.');
+    }
+
+    const chore = db.chores.find((c) => c.id === event.chore_id);
+    const subItems = chore?.sub_items || [];
+
+    // Store audit history
+    if (!event.edit_history) event.edit_history = [];
+    event.edit_history.push({
+      edited_at: new Date().toISOString(),
+      edited_by_user_id: editorUserId,
+      previous_sub_item_name: event.sub_item_name,
+      previous_sub_item_ids: event.sub_item_ids || [],
+      previous_completion_type: event.completion_type,
+      previous_participants: event.participants || [],
+      previous_completed_by_name: event.completed_by_name,
+    });
+
+    // Sub-items update
+    if (updateData.sub_item_input !== undefined) {
+      const subItemInput = updateData.sub_item_input;
+      let targetSubItems = [];
+      if (Array.isArray(subItemInput)) {
+        targetSubItems = subItems.filter((s) => subItemInput.includes(s.id));
+      } else if (typeof subItemInput === 'string' && subItemInput) {
+        if (subItemInput === 'ALL') {
+          targetSubItems = [...subItems];
+        } else {
+          const found = subItems.find((s) => s.id === subItemInput);
+          if (found) targetSubItems = [found];
+        }
+      }
+
+      if (targetSubItems.length === 0 && subItems.length > 0) {
+        targetSubItems = [...subItems];
+      }
+
+      const subItemNamesList = targetSubItems.map((s) => s.name);
+      let combinedSubItemLabel = null;
+      if (subItemNamesList.length > 0) {
+        if (subItems.length > 1 && subItemNamesList.length === subItems.length) {
+          combinedSubItemLabel = `all ${chore?.title || 'chore'} areas`;
+        } else {
+          combinedSubItemLabel = subItemNamesList.join(' + ');
+        }
+      }
+
+      event.sub_item_id = targetSubItems.length === 1 ? targetSubItems[0].id : null;
+      event.sub_item_ids = targetSubItems.map((s) => s.id);
+      event.sub_item_name = combinedSubItemLabel;
+      event.sub_item_names = subItemNamesList;
+    }
+
+    // Completion type & Participants update
+    if (updateData.completion_type !== undefined) {
+      let completionType = updateData.completion_type;
+      let participantIds = updateData.participant_ids;
+
+      let participants = [];
+      if (completionType === 'TOGETHER') {
+        const candidateParticipants = Array.isArray(participantIds) && participantIds.length >= 2
+          ? participantIds
+          : (assignment?.actual_member_ids || []);
+
+        const uniqueParticipants = Array.from(new Set(candidateParticipants));
+        if (uniqueParticipants.length < 2) {
+          completionType = 'ALONE';
+          participants = [editorUserId];
+        } else {
+          participants = uniqueParticipants;
+        }
+      } else {
+        completionType = 'ALONE';
+        participants = [editorUserId];
+      }
+
+      const participantNames = participants.map((uid) => {
+        const m = db.house_members.find((hm) => hm.house_id === event.house_id && hm.user_id === uid);
+        const u = db.users.find((usr) => usr.id === uid);
+        return m ? m.display_name : u ? u.full_name : 'Roommate';
+      });
+
+      const editorUser = db.users.find((u) => u.id === editorUserId);
+      const editorMemberObj = db.house_members.find((hm) => hm.house_id === event.house_id && hm.user_id === editorUserId);
+      const editorName = editorMemberObj ? editorMemberObj.display_name : editorUser ? editorUser.full_name : 'Roommate';
+
+      event.completion_type = completionType;
+      event.participants = participants;
+      event.participant_names = participantNames;
+      event.completed_by_name = completionType === 'TOGETHER' ? participantNames.join(' + ') : editorName;
+    }
+
+    event.is_edited = true;
+    event.last_edited_at = new Date().toISOString();
+    event.last_edited_by_user_id = editorUserId;
+
+    // Recalculate parent assignment completion status if assignment exists
+    if (assignment) {
+      const allCompletionsForAssign = db.completion_events.filter((ce) => ce.assignment_id === assignment.id);
+      const coveredSubIds = new Set();
+      allCompletionsForAssign.forEach((ce) => {
+        if (ce.sub_item_id) coveredSubIds.add(ce.sub_item_id);
+        (ce.sub_item_ids || []).forEach((id) => coveredSubIds.add(id));
+      });
+
+      if (subItems.length === 0 || subItems.every((s) => coveredSubIds.has(s.id))) {
+        assignment.status = RESPONSIBILITY_STATUS.COMPLETED;
+      } else {
+        assignment.status = RESPONSIBILITY_STATUS.PENDING;
+      }
+    }
+
+    this.saveRawData(db);
+    return event;
   }
 
   getHouseCompletionEvents(houseId) {

@@ -25,7 +25,9 @@ export default function Home() {
   const [showChoreModal, setShowChoreModal] = useState(false);
   const [showCreateHouseModal, setShowCreateHouseModal] = useState(false);
   const [showJoinHouseModal, setShowJoinHouseModal] = useState(false);
+  const [showEditHouseModal, setShowEditHouseModal] = useState(false);
   const [newHouseName, setNewHouseName] = useState('');
+  const [editHouseNameInput, setEditHouseNameInput] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [modalError, setModalError] = useState('');
 
@@ -100,6 +102,20 @@ export default function Home() {
     }
   };
 
+  const handleModalEditHouse = (e) => {
+    e.preventDefault();
+    if (!editHouseNameInput.trim()) return;
+    try {
+      store.updateHouseName(activeHouse.id, editHouseNameInput.trim());
+      setEditHouseNameInput('');
+      setModalError('');
+      setShowEditHouseModal(false);
+      showToast({ type: 'success', message: 'House name updated successfully!' });
+    } catch (err) {
+      setModalError(err.message);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
       {/* Top Navbar */}
@@ -117,12 +133,17 @@ export default function Home() {
           setModalError('');
           setShowJoinHouseModal(true);
         }}
+        onOpenEditHouse={() => {
+          setModalError('');
+          setEditHouseNameInput(activeHouse.name);
+          setShowEditHouseModal(true);
+        }}
         onOpenProfile={() => setShowProfileModal(true)}
         unreadNotifCount={unreadNotifCount}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-24 md:pb-8">
         {activeTab === 'dashboard' && (
           <Dashboard
             house={activeHouse}
@@ -147,6 +168,7 @@ export default function Home() {
           <MembersView
             house={activeHouse}
             members={members}
+            currentUser={currentUser}
           />
         )}
 
@@ -155,6 +177,7 @@ export default function Home() {
             house={activeHouse}
             chores={chores}
             members={members}
+            currentUser={currentUser}
           />
         )}
 
@@ -171,7 +194,6 @@ export default function Home() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         unreadNotifCount={unreadNotifCount}
-        onOpenProfile={() => setShowProfileModal(true)}
       />
 
       {/* Toast Notification Banner */}
@@ -181,6 +203,7 @@ export default function Home() {
       {showProfileModal && (
         <ProfileModal
           currentUser={currentUser}
+          activeHouse={activeHouse}
           onClose={() => setShowProfileModal(false)}
           onShowToast={showToast}
         />
@@ -272,6 +295,50 @@ export default function Home() {
                   className="flex-1 py-2.5 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-md"
                 >
                   Join House
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT HOUSE NAME MODAL */}
+      {showEditHouseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200 dark:border-gray-700">
+            <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-lg">Edit House Name</h3>
+            {modalError && (
+              <p className="text-xs text-rose-600 bg-rose-50 p-2 rounded-xl border border-rose-200">
+                {modalError}
+              </p>
+            )}
+            <form onSubmit={handleModalEditHouse} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  House Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Palm Villa"
+                  value={editHouseNameInput}
+                  onChange={(e) => setEditHouseNameInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs font-semibold outline-none"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditHouseModal(false)}
+                  className="flex-1 py-2.5 text-xs font-bold border border-slate-300 dark:border-gray-600 text-slate-600 dark:text-slate-300 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-md"
+                >
+                  Save Name
                 </button>
               </div>
             </form>

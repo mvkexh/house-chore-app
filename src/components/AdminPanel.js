@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { store } from '../lib/storage';
 import { ROLES, CHORE_FREQUENCIES } from '../lib/types';
+import HouseSettings from './HouseSettings';
 
 export default function AdminPanel({ house, currentUser, members, teams, chores, absences, substitutions }) {
   const [activeAdminTab, setActiveAdminTab] = useState('members');
@@ -686,31 +687,11 @@ export default function AdminPanel({ house, currentUser, members, teams, chores,
 
       {/* 5. SETTINGS TAB */}
       {activeAdminTab === 'settings' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6 max-w-xl">
-          <h2 className="text-lg font-bold text-slate-900">House Settings & Security</h2>
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-            <div>
-              <span className="text-xs font-semibold text-slate-500 uppercase">House Name</span>
-              <p className="text-base font-bold text-slate-900">{house.name}</p>
-            </div>
-
-            <div>
-              <span className="text-xs font-semibold text-slate-500 uppercase">House Join Code</span>
-              <div className="flex items-center gap-3 mt-1">
-                <span className="font-mono text-lg font-extrabold text-indigo-700 bg-white border border-indigo-200 px-3 py-1 rounded-lg">
-                  {house.invite_code}
-                </span>
-                <button
-                  onClick={handleRegenerateCode}
-                  className="px-3 py-2 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg transition border border-indigo-200 flex items-center gap-1.5"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Regenerate Code
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <HouseSettings
+          house={house}
+          currentUser={currentUser}
+          members={members}
+        />
       )}
     </div>
   );

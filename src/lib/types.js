@@ -8,8 +8,8 @@ export const ROLES = {
 };
 
 export const CHORE_TYPES = {
-  SCHEDULED: 'SCHEDULED', // Happens at specific day/time (e.g. Monday 7 PM)
-  REPEAT_ON_DEMAND: 'REPEAT_ON_DEMAND', // Responsible for period, completed multiple times (e.g. Trash Duty)
+  SCHEDULED: 'SCHEDULED', // Fixed day/time (e.g. Mon 7 PM)
+  REPEAT_ON_DEMAND: 'REPEAT_ON_DEMAND', // Periodic responsibility (e.g. Trash, Kitchen, Bathroom)
 };
 
 export const CHORE_FREQUENCIES = {
@@ -17,6 +17,7 @@ export const CHORE_FREQUENCIES = {
   DAILY: 'DAILY',
   WEEKLY: 'WEEKLY',
   EVERY_2_WEEKS: 'EVERY_2_WEEKS',
+  MONTHLY: 'MONTHLY',
   CUSTOM: 'CUSTOM',
 };
 
@@ -28,4 +29,21 @@ export const RESPONSIBILITY_STATUS = {
 export const ASSIGNMENT_SOURCE = {
   AUTO_SCHEDULER: 'AUTO_SCHEDULER',
   MANUAL_OVERRIDE: 'MANUAL_OVERRIDE',
+  CONSEQUENCE_RETAINED: 'CONSEQUENCE_RETAINED',
+};
+
+export const ASSIGNMENT_PREFERENCES = {
+  AUTOMATIC: 'AUTOMATIC',
+  MANUAL: 'MANUAL',
+  AVOID_REPETITION: 'AVOID_REPETITION',
+  SAME_TEAM: 'SAME_TEAM',
+  PREFER_SAME_TEAM: 'PREFER_SAME_TEAM',
+  COORDINATE_SAME_TEAM: 'COORDINATE_SAME_TEAM',
+  MEMBER_PREFERENCES: 'MEMBER_PREFERENCES',
+};
+
+export const SUB_ITEM_STATUS = {
+  NORMAL: 'NORMAL',
+  ATTENTION_REQUESTED: 'ATTENTION_REQUESTED',
+  COMPLETED: 'COMPLETED',
 };

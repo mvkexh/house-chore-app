@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Bell, Check, Clock, ShieldCheck } from 'lucide-react';
 import { store } from '../lib/storage';
 import { isNotificationSupported, getNotificationPermission, requestNotificationPermission } from '../lib/notifications';
+import { formatDateTime12Hour } from '../lib/formatters';
 
 export default function NotificationsView({ notifications, onMarkRead }) {
   const [pushPermission, setPushPermission] = useState(getNotificationPermission());
@@ -66,7 +67,7 @@ export default function NotificationsView({ notifications, onMarkRead }) {
                 <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">{n.message}</p>
                 <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-1 font-medium">
                   <Clock className="w-3 h-3" />
-                  {new Date(n.created_at).toLocaleString()}
+                  {formatDateTime12Hour(n.created_at)}
                 </div>
               </div>
 
