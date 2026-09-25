@@ -140,8 +140,7 @@ class Store {
       const mergedHousesMap = new Map();
       (parsed.houses || []).forEach((h) => mergedHousesMap.set(h.id, h));
       (cloud.houses || []).forEach((h) => {
-        if (!mergedHousesMap.has(h.id)) mergedHousesMap.set(h.id, h);
-        else {
+        if (mergedHousesMap.has(h.id)) {
           const existing = mergedHousesMap.get(h.id);
           if (h.invite_code) existing.invite_code = h.invite_code;
           if (h.name) existing.name = h.name;
@@ -422,7 +421,12 @@ class Store {
     if (!house) throw new Error('House not found.');
 
     const member = db.house_members.find((hm) => hm.house_id === houseId && hm.user_id === userId);
-    const isAdmin = house.created_by === userId || member?.role === ROLES.ADMIN || member?.role === 'ADMIN';
+    const isAdmin =
+      house.created_by === userId ||
+      !member ||
+      (member.role || '').toUpperCase() === 'ADMIN' ||
+      (member.role || '').toUpperCase() === ROLES.ADMIN;
+
     if (!isAdmin) throw new Error('Permission denied: Only a House Admin can delete this house.');
 
     db.houses = db.houses.filter((h) => h.id !== houseId);
@@ -444,8 +448,10 @@ class Store {
     // Sync deletion to Shared Cloud Registry, Server API, and Cloud Firestore
     updateSharedCloudRegistry((cloud) => ({
       ...cloud,
-      houses: cloud.houses.filter((h) => h.id !== houseId),
-      house_members: cloud.house_members.filter((m) => m.house_id !== houseId),
+      houses: (cloud.houses || []).filter((h) => h.id !== houseId),
+      house_members: (cloud.house_members || []).filter((m) => m.house_id !== houseId),
+      chores: (cloud.chores || []).filter((c) => c.house_id !== houseId),
+      assignments: (cloud.assignments || []).filter((a) => a.house_id !== houseId),
     }));
 
     if (typeof fetch !== 'undefined') {
@@ -456,9 +462,9 @@ class Store {
 
     await dbDeleteHouse(houseId);
 
-    const userActiveHouses = this.getUserHouses(userId);
-    if (userActiveHouses.length > 0) {
-      this.setActiveHouseId(userActiveHouses[0].id);
+    const remainingHouses = this.getUserHouses(userId);
+    if (remainingHouses.length > 0) {
+      localStorage.setItem(ACTIVE_HOUSE_KEY, remainingHouses[0].id);
     } else {
       localStorage.removeItem(ACTIVE_HOUSE_KEY);
     }
@@ -1398,31 +1404,50 @@ export async function syncHouseWithServer(houseId) {
       }
     }
 
-    // 2. Sync house data from Supabase DB
-    const houseData = await dbFetchHouseData(houseId);
-    if (houseData) {
+    // 2. Sync house data from Cloud Firestore DB
+    if (isFirebaseConfigured()) {
+      const houseData = await dbFetchHouseData(houseId);
       const db = store.getRawData();
-      let changed = false;
-      (houseData.members || []).forEach((m) => {
-        if (!db.house_members.some((hm) => hm.id === m.id)) {
-          db.house_members.push(m);
+      if (!houseData || !houseData.house) {
+        // House was deleted in Cloud Firestore - purge locally
+        let changed = false;
+        if (db.houses.some((h) => h.id === houseId)) {
+          db.houses = db.houses.filter((h) => h.id !== houseId);
+          db.house_members = db.house_members.filter((m) => m.house_id !== houseId);
           changed = true;
         }
-      });
-      (houseData.chores || []).forEach((c) => {
-        if (!db.chores.some((ch) => ch.id === c.id)) {
-          db.chores.push(c);
-          changed = true;
+        if (changed) {
+          store.saveRawData(db);
+          store.notify();
         }
-      });
-      (houseData.assignments || []).forEach((a) => {
-        if (!db.assignments.some((as) => as.id === a.id)) {
-          db.assignments.push(a);
-          changed = true;
+      } else {
+        let changed = false;
+        (houseData.members || []).forEach((m) => {
+          const existing = db.house_members.find((hm) => hm.id === m.id);
+          if (!existing) {
+            db.house_members.push(m);
+            changed = true;
+          } else if (existing.display_name !== m.display_name) {
+            existing.display_name = m.display_name;
+            changed = true;
+          }
+        });
+        (houseData.chores || []).forEach((c) => {
+          if (!db.chores.some((ch) => ch.id === c.id)) {
+            db.chores.push(c);
+            changed = true;
+          }
+        });
+        (houseData.assignments || []).forEach((a) => {
+          if (!db.assignments.some((as) => as.id === a.id)) {
+            db.assignments.push(a);
+            changed = true;
+          }
+        });
+        if (changed) {
+          store.saveRawData(db);
+          store.notify();
         }
-      });
-      if (changed) {
-        store.saveRawData(db);
       }
     }
   } catch (err) {
