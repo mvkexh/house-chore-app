@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { store, syncHouseWithServer } from '../lib/storage';
-import { subscribeToAuthState } from '../lib/firebase';
+import { subscribeToAuthState, handleAuthRedirectResult } from '../lib/firebase';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import Onboarding from '../components/Onboarding';
@@ -41,6 +41,9 @@ export default function Home() {
   };
 
   useEffect(() => {
+    // 0. Handle OAuth Redirect Result (if arriving back from signInWithRedirect)
+    handleAuthRedirectResult();
+
     // 1. Local Store Subscription
     const unsubscribeStore = store.subscribe(() => {
       setDbState(store.getRawData());

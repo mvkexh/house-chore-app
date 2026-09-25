@@ -7,6 +7,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
 } from 'firebase/auth';
@@ -53,15 +55,42 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export async function signInWithGoogle() {
   if (typeof window === 'undefined') return;
 
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+
   try {
-    const googleProvider = new GoogleAuthProvider();
-    googleProvider.setCustomParameters({ prompt: 'select_account' });
-    const result = await signInWithPopup(auth, googleProvider);
+    const result = await signInWithPopup(auth, provider);
     return result;
   } catch (error) {
-    console.error('[Firebase Auth Error] Google Popup Sign-in Error:', error.message);
+    console.warn('[Firebase Auth Warning] Popup sign-in error:', error.code, error.message);
+    
+    // Automatically trigger signInWithRedirect fallback when popup is blocked by browser or closed
+    if (
+      error.code === 'auth/popup-blocked' ||
+      error.code === 'auth/popup-closed-by-user' ||
+      error.message?.includes('popup-blocked')
+    ) {
+      console.log('[Firebase Auth] Popup blocked/closed. Initiating signInWithRedirect...');
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    
     throw new Error(`Google Sign-In Error: ${error.message}`);
   }
+}
+
+export async function handleAuthRedirectResult() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const result = await getRedirectResult(auth);
+    if (result && result.user) {
+      console.log('[Firebase Auth] Redirect sign-in success:', result.user.email);
+      return result.user;
+    }
+  } catch (error) {
+    console.error('[Firebase Auth Error] getRedirectResult Error:', error.message);
+  }
+  return null;
 }
 
 export async function signOutUser() {
