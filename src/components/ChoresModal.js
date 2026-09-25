@@ -91,7 +91,7 @@ export default function ChoresModal({ house, currentUser, onClose, onShowToast }
                   placeholder="e.g. Garbage, Kitchen Cleaning, Bathroom"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
                   required
                   autoFocus
                 />
@@ -106,7 +106,7 @@ export default function ChoresModal({ house, currentUser, onClose, onShowToast }
                   placeholder="e.g. Take garbage to outside collection area."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 text-xs font-medium outline-none"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 text-xs font-medium outline-none"
                 />
               </div>
 
@@ -211,7 +211,7 @@ export default function ChoresModal({ house, currentUser, onClose, onShowToast }
                       <select
                         value={scheduleDay}
                         onChange={(e) => setScheduleDay(e.target.value)}
-                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs font-semibold"
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 text-xs font-semibold"
                       >
                         {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(
                           (d) => (
@@ -230,7 +230,7 @@ export default function ChoresModal({ house, currentUser, onClose, onShowToast }
                         type="time"
                         value={scheduleTime}
                         onChange={(e) => setScheduleTime(e.target.value)}
-                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs font-semibold"
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 text-xs font-semibold"
                       />
                     </div>
                   </div>
@@ -256,7 +256,7 @@ export default function ChoresModal({ house, currentUser, onClose, onShowToast }
             </div>
           )}
 
-          {/* STEP 4: Review & Automatic Assignment Confirmation */}
+          {/* STEP 4: Review */}
           {step === 4 && (
             <div className="space-y-4 animate-fade-in">
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-slate-200 dark:border-gray-600 space-y-2 text-xs">
