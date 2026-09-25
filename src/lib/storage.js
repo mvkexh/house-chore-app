@@ -196,22 +196,29 @@ class Store {
   }
 
   loginWithGoogle(googleProfile = null) {
-    const defaultProfile = googleProfile || {
-      id: 'usr_' + Math.random().toString(36).substring(2, 9),
-      email: 'user@example.com',
-      full_name: 'Roommate User',
-      avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    };
+    if (!googleProfile) return null;
 
     const db = this.getRawData();
-    let existingUser = db.users.find((u) => u.email === defaultProfile.email || u.id === defaultProfile.id);
+    let existingUser = db.users.find((u) => u.email === googleProfile.email || u.id === googleProfile.id);
 
     if (!existingUser) {
-      existingUser = { ...defaultProfile, created_at: new Date().toISOString() };
+      existingUser = {
+        id: googleProfile.id || 'usr_' + Math.random().toString(36).substring(2, 9),
+        email: googleProfile.email || 'user@example.com',
+        full_name: googleProfile.full_name || '',
+        avatar_url: googleProfile.avatar_url || '',
+        has_chosen_name: Boolean(googleProfile.has_chosen_name),
+        created_at: new Date().toISOString(),
+      };
       db.users.push(existingUser);
     } else {
-      if (defaultProfile.full_name) existingUser.full_name = defaultProfile.full_name;
-      if (defaultProfile.avatar_url) existingUser.avatar_url = defaultProfile.avatar_url;
+      if (googleProfile.full_name && !existingUser.has_chosen_name) {
+        existingUser.full_name = googleProfile.full_name;
+      }
+      if (googleProfile.avatar_url) existingUser.avatar_url = googleProfile.avatar_url;
+      if (googleProfile.has_chosen_name !== undefined) {
+        existingUser.has_chosen_name = googleProfile.has_chosen_name;
+      }
     }
     this.saveRawData(db);
 
@@ -238,12 +245,13 @@ class Store {
     this.notify();
   }
 
-  updateUserProfile(userId, { full_name, avatar_url }) {
+  updateUserProfile(userId, { full_name, avatar_url, has_chosen_name }) {
     const db = this.getRawData();
     const user = db.users.find((u) => u.id === userId);
     if (user) {
       if (full_name !== undefined) user.full_name = full_name;
       if (avatar_url !== undefined) user.avatar_url = avatar_url;
+      if (has_chosen_name !== undefined) user.has_chosen_name = has_chosen_name;
       this.saveRawData(db);
     }
 
@@ -251,6 +259,7 @@ class Store {
     if (currentUser && currentUser.id === userId) {
       if (full_name !== undefined) currentUser.full_name = full_name;
       if (avatar_url !== undefined) currentUser.avatar_url = avatar_url;
+      if (has_chosen_name !== undefined) currentUser.has_chosen_name = has_chosen_name;
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(currentUser));
     }
 

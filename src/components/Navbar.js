@@ -18,12 +18,9 @@ import {
   UserPlus,
   User,
   Edit2,
-  ChevronDown,
 } from 'lucide-react';
 import { store, getWeekDetails } from '../lib/storage';
 import { THEMES, getStoredTheme, setStoredTheme, applyTheme } from '../lib/theme';
-import { formatDateRange, formatTime12Hour } from '../lib/formatters';
-import InteractiveCalendar from './InteractiveCalendar';
 import CalendarModal from './CalendarModal';
 
 export default function Navbar({
@@ -97,43 +94,12 @@ export default function Navbar({
     { id: 'history', label: 'History', icon: History },
   ];
 
-  // Schedule Preview Calculations
-  const now = new Date();
-  const thisWeek = getWeekDetails(now);
-  const nextWeekDate = new Date(now);
-  nextWeekDate.setDate(nextWeekDate.getDate() + 7);
-  const nextWeek = getWeekDetails(nextWeekDate);
-
-  const rawDb = store.getRawData();
-  const members = activeHouse ? store.getHouseMembers(activeHouse.id) : [];
-  const chores = activeHouse ? store.getHouseChores(activeHouse.id) : [];
-
-  const membersMap = new Map();
-  members.forEach((m) => membersMap.set(m.user_id, m.display_name));
-  rawDb.users.forEach((u) => {
-    if (!membersMap.has(u.id)) membersMap.set(u.id, u.full_name);
-  });
-
-  const choresMap = new Map();
-  chores.forEach((c) => choresMap.set(c.id, c));
-
-  let thisWeekAssignments = [];
-  let nextWeekAssignments = [];
-
-  if (activeHouse) {
-    const thisSched = store.getOrCreateCurrentSchedule(activeHouse.id, now);
-    thisWeekAssignments = store.getScheduleAssignments(thisSched.id);
-
-    const nextSched = store.getOrCreateCurrentSchedule(activeHouse.id, nextWeekDate);
-    nextWeekAssignments = store.getScheduleAssignments(nextSched.id);
-  }
-
   return (
     <header className="sticky top-0 z-40 w-full max-w-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-b border-slate-200 dark:border-gray-800 transition-colors overflow-x-hidden">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 w-full min-w-0 gap-2">
+        <div className="flex items-center justify-between h-16 w-full min-w-0 gap-1.5 sm:gap-2">
           
-          {/* Logo (ALWAYS CLICKABLE TO HOME) & Active House Dropdown */}
+          {/* Logo & Active House Dropdown Switcher */}
           <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 sm:flex-initial">
             <button
               onClick={() => handleNavigate('dashboard')}
@@ -147,9 +113,9 @@ export default function Navbar({
               <span className="hidden xs:inline tracking-tight">ChoreManager</span>
             </button>
 
-            {/* Active House Switcher */}
+            {/* Active House Switcher Pill */}
             {activeHouse && (
-              <div className="relative flex items-center gap-1 bg-slate-100 dark:bg-gray-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-gray-700 text-xs min-w-0 flex-1 max-w-[140px] xs:max-w-[180px] sm:max-w-none">
+              <div className="relative flex items-center gap-1 bg-slate-100 dark:bg-gray-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-gray-700 text-xs min-w-0 flex-1 max-w-[130px] xs:max-w-[160px] sm:max-w-none">
                 <select
                   value={activeHouse.id}
                   onChange={(e) => store.setActiveHouseId(e.target.value)}
@@ -173,7 +139,7 @@ export default function Navbar({
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
 
-                {/* Calendar Preview Toggle Button */}
+                {/* DESKTOP ONLY: Schedule Calendar Toggle Button */}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -182,35 +148,28 @@ export default function Navbar({
                   }}
                   title="View Interactive Schedule Calendar"
                   aria-label="View Interactive Schedule Calendar"
-                  className={`p-1.5 rounded-lg transition shrink-0 flex items-center gap-1 text-[11px] font-extrabold cursor-pointer ${
+                  className={`hidden md:inline-flex p-1.5 rounded-lg transition shrink-0 items-center gap-1 text-[11px] font-extrabold cursor-pointer ${
                     showSchedulePreview
                       ? 'bg-indigo-600 text-white shadow-xs'
                       : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-gray-700 border border-indigo-100 dark:border-indigo-900'
                   }`}
                 >
                   <Calendar className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Schedule</span>
+                  <span>Schedule</span>
                 </button>
 
+                {/* DESKTOP ONLY: Copy House Join Code Badge */}
                 <button
                   type="button"
                   onClick={handleCopyCode}
                   title="Copy House Join Code"
                   aria-label="Copy house invite code"
-                  className="inline-flex items-center gap-1 bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 px-1.5 xs:px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-gray-600 font-mono text-[11px] xs:text-xs font-extrabold hover:bg-indigo-50 dark:hover:bg-gray-600 transition shrink-0 cursor-pointer shadow-2xs"
+                  className="hidden md:inline-flex items-center gap-1 bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 px-1.5 xs:px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-gray-600 font-mono text-[11px] xs:text-xs font-extrabold hover:bg-indigo-50 dark:hover:bg-gray-600 transition shrink-0 cursor-pointer shadow-2xs"
                 >
                   {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-indigo-500" />}
-                  <span className="hidden sm:inline">Code:</span>
+                  <span>Code:</span>
                   <span>{activeHouse.invite_code}</span>
                 </button>
-
-                {/* INTERACTIVE HOUSE SCHEDULE CALENDAR MODAL & MOBILE BOTTOM SHEET (VIA REACT PORTAL) */}
-                <CalendarModal
-                  isOpen={showSchedulePreview}
-                  onClose={() => setShowSchedulePreview(false)}
-                  house={activeHouse}
-                  currentUser={currentUser}
-                />
               </div>
             )}
           </div>
@@ -289,7 +248,7 @@ export default function Navbar({
               </button>
             )}
 
-            {/* Profile Avatar Button (STRICTLY NON-COLLAPSIBLE) */}
+            {/* Profile Avatar Button */}
             <button
               onClick={onOpenProfile}
               className="flex items-center justify-center p-0.5 rounded-full shrink-0 min-w-[32px] min-h-[32px]"
@@ -297,13 +256,13 @@ export default function Navbar({
               aria-label="Profile and Settings"
             >
               <img
-                src={currentUser?.avatar_url}
+                src={currentUser?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(currentUser?.full_name || 'user')}`}
                 alt={currentUser?.full_name || 'Profile'}
                 className="w-8 h-8 rounded-full border border-slate-300 dark:border-gray-600 object-cover shrink-0 min-w-[32px] min-h-[32px] shadow-2xs"
               />
             </button>
 
-            {/* Mobile / Tablet Hamburger Menu Toggle Button */}
+            {/* Mobile Hamburger Menu Toggle Button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
@@ -316,6 +275,44 @@ export default function Navbar({
           </div>
         </div>
       </div>
+
+      {/* MOBILE ROW 2 SUB-BAR: Schedule & Join Code Controls (< md breakpoint) */}
+      {activeHouse && (
+        <div className="md:hidden border-t border-slate-200/80 dark:border-gray-800/80 bg-slate-50/90 dark:bg-gray-900/90 px-3 py-1.5 flex items-center justify-between gap-2 max-w-full overflow-x-hidden">
+          {/* Interactive Schedule Calendar Opener Button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowSchedulePreview((prev) => !prev);
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900 font-extrabold text-[11px] xs:text-xs hover:bg-indigo-100 transition shrink-0 cursor-pointer shadow-2xs"
+          >
+            <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>Schedule Calendar</span>
+          </button>
+
+          {/* Copy House Join Code Badge */}
+          <button
+            type="button"
+            onClick={handleCopyCode}
+            title="Copy House Join Code"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-gray-700 font-mono text-[11px] xs:text-xs font-extrabold hover:bg-indigo-50 dark:hover:bg-gray-700 transition shrink-0 cursor-pointer shadow-2xs"
+          >
+            {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-indigo-500" />}
+            <span className="text-slate-500 font-sans">Code:</span>
+            <span>{activeHouse.invite_code}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Calendar Preview Modal */}
+      <CalendarModal
+        isOpen={showSchedulePreview}
+        onClose={() => setShowSchedulePreview(false)}
+        house={activeHouse}
+        currentUser={currentUser}
+      />
 
       {/* Mobile Drawer / Overlay Navigation */}
       {mobileMenuOpen && (
@@ -416,5 +413,3 @@ export default function Navbar({
     </header>
   );
 }
-
-

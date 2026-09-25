@@ -102,6 +102,7 @@ export async function dbUpsertUserProfile(userObj) {
       email: userObj.email,
       fullName: userObj.full_name || userObj.fullName,
       avatarUrl: userObj.avatar_url || userObj.avatarUrl,
+      hasChosenName: Boolean(userObj.has_chosen_name || userObj.hasChosenName),
       updatedAt: new Date().toISOString(),
     };
     await setDoc(userRef, profileData, { merge: true });

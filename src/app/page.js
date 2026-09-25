@@ -83,8 +83,8 @@ export default function Home() {
     }
   }
 
-  // 1. Not Logged In OR No House Joined Yet -> Show Onboarding Screen
-  if (!currentUser || !activeHouse) {
+  // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen
+  if (!currentUser || !currentUser.has_chosen_name || !activeHouse) {
     return (
       <Onboarding
         currentUser={currentUser}
