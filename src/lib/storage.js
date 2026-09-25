@@ -3,7 +3,7 @@
  */
 import { ROLES, RESPONSIBILITY_STATUS, ASSIGNMENT_SOURCE, CHORE_TYPES, CHORE_FREQUENCIES } from './types';
 import { generateWeeklySchedule, isDateInRange } from './scheduler';
-import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbUpsertUserProfile, signOutUser } from './supabase';
+import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbUpsertUserProfile, signOutUser, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEY = 'roommate_chore_manager_db_v4';
 const CURRENT_USER_KEY = 'roommate_chore_manager_user';
@@ -283,14 +283,17 @@ class Store {
     return db.houses.filter((h) => houseIds.includes(h.id));
   }
 
-  createHouse(houseName, userId) {
+  async createHouse(houseName, userId) {
+    const cleanHouseName = (houseName || '').trim();
+    if (!cleanHouseName) throw new Error('Please enter a house name.');
+
     const db = this.getRawData();
     const houseId = 'house_' + Math.random().toString(36).substring(2, 9);
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
 
     const newHouse = {
       id: houseId,
-      name: houseName,
+      name: cleanHouseName,
       invite_code: inviteCode,
       created_by: userId,
       created_at: new Date().toISOString(),
@@ -306,6 +309,12 @@ class Store {
       is_active: true,
       joined_at: new Date().toISOString(),
     };
+
+    // If Supabase Cloud Database is configured, insert to Supabase FIRST
+    if (isSupabaseConfigured()) {
+      await dbCreateHouse(newHouse);
+      await dbCreateMember(initialMember);
+    }
 
     db.houses.push(newHouse);
     db.house_members.push(initialMember);
@@ -332,10 +341,6 @@ class Store {
         body: JSON.stringify(initialMember),
       }).catch(() => {});
     }
-
-    // Sync to Supabase Database
-    dbCreateHouse(newHouse);
-    dbCreateMember(initialMember);
 
     this.setActiveHouseId(houseId);
     this.getOrCreateCurrentSchedule(houseId);

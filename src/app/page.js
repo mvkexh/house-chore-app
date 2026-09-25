@@ -103,14 +103,19 @@ export default function Home() {
   const notifications = store.getUserNotifications(currentUser.id);
   const unreadNotifCount = notifications.filter((n) => !n.is_read).length;
 
-  const handleModalCreateHouse = (e) => {
+  const handleModalCreateHouse = async (e) => {
     e.preventDefault();
     if (!newHouseName.trim()) return;
-    store.createHouse(newHouseName.trim(), currentUser.id);
-    setNewHouseName('');
-    setShowCreateHouseModal(false);
-    showToast({ type: 'success', message: 'New house created successfully!' });
-    setActiveTab('dashboard');
+    try {
+      await store.createHouse(newHouseName.trim(), currentUser.id);
+      setNewHouseName('');
+      setModalError('');
+      setShowCreateHouseModal(false);
+      showToast({ type: 'success', message: 'New house created successfully!' });
+      setActiveTab('dashboard');
+    } catch (err) {
+      setModalError(err.message || 'Failed to create house.');
+    }
   };
 
   const handleModalJoinHouse = async (e) => {

@@ -52,15 +52,19 @@ export default function Onboarding({ currentUser, onComplete }) {
     });
   };
 
-  const handleCreateHouseSubmit = (e) => {
+  const handleCreateHouseSubmit = async (e) => {
     e.preventDefault();
     if (!houseName.trim()) {
       setErrorMessage('Please enter a house name.');
       return;
     }
     setErrorMessage('');
-    const house = store.createHouse(houseName.trim(), currentUser.id);
-    if (onComplete) onComplete(house.id);
+    try {
+      const house = await store.createHouse(houseName.trim(), currentUser.id);
+      if (onComplete) onComplete(house.id);
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to create house.');
+    }
   };
 
   const handleJoinHouseSubmit = async (e) => {
