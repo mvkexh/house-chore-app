@@ -197,9 +197,10 @@ export default function Navbar({
                   onClick={handleCopyCode}
                   title="Copy House Join Code"
                   aria-label="Copy house invite code"
-                  className="hidden md:inline-flex items-center gap-1 bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded border border-indigo-200 dark:border-gray-600 font-mono font-bold hover:bg-indigo-50 dark:hover:bg-gray-600 transition shrink-0"
+                  className="inline-flex items-center gap-1 bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 px-1.5 xs:px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-gray-600 font-mono text-[11px] xs:text-xs font-extrabold hover:bg-indigo-50 dark:hover:bg-gray-600 transition shrink-0 cursor-pointer shadow-2xs"
                 >
-                  {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-indigo-500" />}
+                  <span className="hidden sm:inline">Code:</span>
                   <span>{activeHouse.invite_code}</span>
                 </button>
 

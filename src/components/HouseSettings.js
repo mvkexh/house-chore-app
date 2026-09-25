@@ -117,10 +117,10 @@ export default function HouseSettings({ house, currentUser, members, onShowToast
     }
   };
 
-  const handleConfirmLeave = () => {
+  const handleConfirmLeave = async () => {
     setActionError('');
     try {
-      store.leaveHouse(house.id, currentUser.id);
+      await store.leaveHouse(house.id, currentUser.id);
       setShowLeaveConfirmModal(false);
       onShowToast?.({ type: 'success', message: `Left ${house.name}. Historical records preserved.` });
       onHouseLeft?.();

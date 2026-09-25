@@ -383,17 +383,17 @@ class Store {
     return newCode;
   }
 
-  leaveHouse(houseId, userId) {
+  async leaveHouse(houseId, userId) {
     const db = this.getRawData();
     const houseMembers = db.house_members.filter((hm) => hm.house_id === houseId && hm.is_active !== false);
     const member = houseMembers.find((hm) => hm.user_id === userId);
     if (!member) throw new Error('You are not an active member of this house.');
 
-    const isAdmin = member.role === ROLES.ADMIN || member.role === 'ADMIN';
+    const isAdmin = (member.role || '').toUpperCase() === ROLES.ADMIN || (member.role || '').toUpperCase() === 'ADMIN';
     const otherActiveMembers = houseMembers.filter((hm) => hm.user_id !== userId);
 
     if (isAdmin && otherActiveMembers.length > 0) {
-      const otherAdmins = otherActiveMembers.filter((hm) => hm.role === ROLES.ADMIN || hm.role === 'ADMIN');
+      const otherAdmins = otherActiveMembers.filter((hm) => (hm.role || '').toUpperCase() === ROLES.ADMIN || (hm.role || '').toUpperCase() === 'ADMIN');
       if (otherAdmins.length === 0) {
         throw new Error('You are the only Admin of this house. Please promote another member to Admin before leaving.');
       }
@@ -404,6 +404,22 @@ class Store {
     member.left_at = new Date().toISOString();
 
     this.saveRawData(db);
+
+    // Sync deactivated membership to Shared Cloud Registry, Server API, and Cloud Firestore
+    updateSharedCloudRegistry((cloud) => ({
+      ...cloud,
+      house_members: cloud.house_members.map((m) => (m.id === member.id ? { ...m, is_active: false, left_at: member.left_at } : m)),
+    }));
+
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(member),
+      }).catch(() => {});
+    }
+
+    await dbCreateMember(member);
 
     const userActiveHouses = this.getUserHouses(userId);
     if (userActiveHouses.length > 0) {
