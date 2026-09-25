@@ -53,19 +53,9 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export async function signInWithGoogle() {
   if (typeof window === 'undefined') return;
 
-  if (!isFirebaseConfigured()) {
-    console.warn('[Firebase Auth Warning] Firebase environment variables missing. Falling back to simulation user.');
-    return {
-      user: {
-        uid: 'usr_fb_' + Math.random().toString(36).substring(2, 9),
-        email: 'user@example.com',
-        displayName: 'Roommate User',
-        photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      },
-    };
-  }
-
   try {
+    const googleProvider = new GoogleAuthProvider();
+    googleProvider.setCustomParameters({ prompt: 'select_account' });
     const result = await signInWithPopup(auth, googleProvider);
     return result;
   } catch (error) {
@@ -75,7 +65,6 @@ export async function signInWithGoogle() {
 }
 
 export async function signOutUser() {
-  if (!isFirebaseConfigured()) return;
   try {
     await firebaseSignOut(auth);
   } catch (err) {
@@ -84,7 +73,6 @@ export async function signOutUser() {
 }
 
 export function subscribeToAuthState(callback) {
-  if (!isFirebaseConfigured()) return () => {};
   return firebaseOnAuthStateChanged(auth, callback);
 }
 

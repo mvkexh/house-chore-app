@@ -139,52 +139,13 @@ export default function Onboarding({ currentUser, onComplete }) {
               type="button"
               onClick={handleTriggerGoogleOAuth}
               disabled={isSigningInOAuth}
-              className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-sm transition shadow-md flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60"
             >
               <svg className="w-5 h-5 fill-current shrink-0" viewBox="0 0 24 24">
                 <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.761H12.545z" />
               </svg>
-              {isSigningInOAuth ? 'Opening Google Sign-In...' : 'Continue with Google Account'}
+              {isSigningInOAuth ? 'Opening Google Account Selection...' : 'Continue with Google Account'}
             </button>
-
-            {/* Fallback form for local development when Firebase Auth environment variables are unconfigured */}
-            {!isFirebaseConfigured() && (
-              <form onSubmit={handleLocalFormLogin} className="pt-4 border-t border-slate-100 dark:border-gray-700 space-y-3">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Local Testing Mode
-                </p>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Display Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Alex Smith"
-                    value={googleName}
-                    onChange={(e) => setGoogleName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="alex@example.com"
-                    value={googleEmail}
-                    onChange={(e) => setGoogleEmail(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-xs outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 rounded-lg bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 text-slate-800 dark:text-slate-200 font-bold text-xs transition"
-                >
-                  Sign In (Dev Fallback)
-                </button>
-              </form>
-            )}
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Home,
   Calendar,
@@ -18,8 +18,11 @@ import {
   UserPlus,
   User,
   Edit2,
+  ChevronDown,
+  Settings,
+  LogOut,
 } from 'lucide-react';
-import { store, getWeekDetails } from '../lib/storage';
+import { store } from '../lib/storage';
 import { THEMES, getStoredTheme, setStoredTheme, applyTheme } from '../lib/theme';
 import CalendarModal from './CalendarModal';
 
@@ -38,7 +41,10 @@ export default function Navbar({
   const [isCopied, setIsCopied] = useState(false);
   const [currentTheme, setCurrentTheme] = useState(THEMES.SYSTEM);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [houseMenuOpen, setHouseMenuOpen] = useState(false);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
+
+  const houseMenuRef = useRef(null);
 
   useEffect(() => {
     setCurrentTheme(getStoredTheme());
@@ -56,16 +62,28 @@ export default function Navbar({
     };
   }, [showSchedulePreview]);
 
-  // Close mobile menu & schedule popover on ESC key
+  // Close menus on click outside or ESC key
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         setMobileMenuOpen(false);
+        setHouseMenuOpen(false);
         setShowSchedulePreview(false);
       }
     };
+
+    const handleClickOutside = (e) => {
+      if (houseMenuRef.current && !houseMenuRef.current.contains(e.target)) {
+        setHouseMenuOpen(false);
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   const handleToggleQuickTheme = () => {
@@ -84,6 +102,7 @@ export default function Navbar({
   const handleNavigate = (tabId) => {
     setActiveTab(tabId);
     setMobileMenuOpen(false);
+    setHouseMenuOpen(false);
     setShowSchedulePreview(false);
   };
 
@@ -100,7 +119,7 @@ export default function Navbar({
         <div className="flex items-center justify-between h-16 w-full min-w-0 gap-1.5 sm:gap-2">
           
           {/* Logo & Active House Dropdown Switcher */}
-          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 sm:flex-initial">
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 lg:flex-initial">
             <button
               onClick={() => handleNavigate('dashboard')}
               className="flex items-center gap-1.5 font-extrabold text-slate-900 dark:text-slate-100 text-sm sm:text-lg shrink-0 hover:opacity-90 transition cursor-pointer text-left focus:outline-none"
@@ -113,70 +132,137 @@ export default function Navbar({
               <span className="hidden xs:inline tracking-tight">ChoreManager</span>
             </button>
 
-            {/* Active House Switcher Pill */}
+            {/* Active House Dropdown Pill Button */}
             {activeHouse && (
-              <div className="relative flex items-center gap-1 bg-slate-100 dark:bg-gray-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-gray-700 text-xs min-w-0 flex-1 max-w-[130px] xs:max-w-[160px] sm:max-w-none">
-                <select
-                  value={activeHouse.id}
-                  onChange={(e) => store.setActiveHouseId(e.target.value)}
-                  aria-label="Select Active House"
-                  className="bg-transparent font-extrabold text-slate-800 dark:text-slate-200 outline-none cursor-pointer pr-0.5 truncate text-xs w-full min-w-0"
-                >
-                  {userHouses.map((h) => (
-                    <option key={h.id} value={h.id} className="bg-white dark:bg-gray-800 text-slate-900 dark:text-slate-100">
-                      {h.name}
-                    </option>
-                  ))}
-                </select>
-
+              <div className="relative min-w-0 flex-1 max-w-[150px] xs:max-w-[190px] sm:max-w-none" ref={houseMenuRef}>
                 <button
                   type="button"
-                  onClick={onOpenEditHouse}
-                  title="Edit House Name"
-                  aria-label="Edit House Name"
-                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition shrink-0"
+                  onClick={() => setHouseMenuOpen(!houseMenuOpen)}
+                  aria-expanded={houseMenuOpen}
+                  className="w-full flex items-center justify-between gap-1 bg-slate-100 dark:bg-gray-800 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-gray-700 text-xs font-extrabold text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-gray-700 transition cursor-pointer shadow-2xs"
                 >
-                  <Edit2 className="w-3.5 h-3.5" />
+                  <span className="truncate">{activeHouse.name}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200 ${houseMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
 
-                {/* DESKTOP ONLY: Schedule Calendar Toggle Button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowSchedulePreview((prev) => !prev);
-                  }}
-                  title="View Interactive Schedule Calendar"
-                  aria-label="View Interactive Schedule Calendar"
-                  className={`hidden md:inline-flex p-1.5 rounded-lg transition shrink-0 items-center gap-1 text-[11px] font-extrabold cursor-pointer ${
-                    showSchedulePreview
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-gray-700 border border-indigo-100 dark:border-indigo-900'
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>Schedule</span>
-                </button>
+                {/* HOUSE MENU DROPDOWN POPOVER */}
+                {houseMenuOpen && (
+                  <div className="absolute left-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-gray-700 py-3 px-3.5 z-50 space-y-3 transition-all animate-in fade-in slide-in-from-top-2">
+                    
+                    {/* Active House Header & Code Badge */}
+                    <div className="pb-2 border-b border-slate-100 dark:border-gray-700 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-slate-100 truncate">
+                          {activeHouse.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHouseMenuOpen(false);
+                            onOpenEditHouse();
+                          }}
+                          className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition"
+                          title="Edit House Name"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
 
-                {/* DESKTOP ONLY: Copy House Join Code Badge */}
-                <button
-                  type="button"
-                  onClick={handleCopyCode}
-                  title="Copy House Join Code"
-                  aria-label="Copy house invite code"
-                  className="hidden md:inline-flex items-center gap-1 bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 px-1.5 xs:px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-gray-600 font-mono text-[11px] xs:text-xs font-extrabold hover:bg-indigo-50 dark:hover:bg-gray-600 transition shrink-0 cursor-pointer shadow-2xs"
-                >
-                  {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-indigo-500" />}
-                  <span>Code:</span>
-                  <span>{activeHouse.invite_code}</span>
-                </button>
+                      {/* Join Code Copy Box */}
+                      <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-gray-700/60 border border-slate-200 dark:border-gray-600">
+                        <div className="text-[11px] font-mono">
+                          <span className="text-slate-400 font-sans mr-1">Join Code:</span>
+                          <span className="font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wider">
+                            {activeHouse.invite_code}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCopyCode}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white dark:bg-gray-600 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-extrabold border border-slate-200 dark:border-gray-500 shadow-2xs hover:bg-indigo-50 dark:hover:bg-gray-500 transition cursor-pointer"
+                        >
+                          {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-indigo-500" />}
+                          <span>{isCopied ? 'Copied' : 'Copy'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* House Menu Actions */}
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHouseMenuOpen(false);
+                          setShowSchedulePreview(true);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-gray-700/70 hover:text-indigo-600 dark:hover:text-indigo-400 transition text-left"
+                      >
+                        <Calendar className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <span>Schedule Calendar</span>
+                      </button>
+
+                      {/* House Switcher List */}
+                      {userHouses.length > 1 && (
+                        <div className="pt-2 border-t border-slate-100 dark:border-gray-700 space-y-1">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2.5">
+                            Switch House
+                          </span>
+                          {userHouses.map((h) => (
+                            <button
+                              key={h.id}
+                              type="button"
+                              onClick={() => {
+                                store.setActiveHouseId(h.id);
+                                setHouseMenuOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-bold transition text-left ${
+                                h.id === activeHouse.id
+                                  ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-extrabold'
+                                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'
+                              }`}
+                            >
+                              <span className="truncate">{h.name}</span>
+                              {h.id === activeHouse.id && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Create / Join House Actions */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-gray-700 grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHouseMenuOpen(false);
+                            onOpenCreateHouse();
+                          }}
+                          className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-slate-100 dark:bg-gray-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold hover:bg-slate-200 transition"
+                        >
+                          <Plus className="w-3.5 h-3.5 shrink-0" />
+                          <span>New House</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHouseMenuOpen(false);
+                            onOpenJoinHouse();
+                          }}
+                          className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold hover:bg-indigo-100 transition"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                          <span>Join House</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* Desktop Navigation Links */}
+          {/* Desktop Navigation Links (DESKTOP ONLY: >= lg) */}
           {activeHouse && (
-            <nav aria-label="Desktop Navigation" className="hidden md:flex items-center space-x-1 shrink-0">
+            <nav aria-label="Desktop Navigation" className="hidden lg:flex items-center space-x-1 shrink-0">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
@@ -204,7 +290,7 @@ export default function Navbar({
             {/* Quick 1-Click Dark/Light Theme Switcher Button */}
             <button
               onClick={handleToggleQuickTheme}
-              className="p-1.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-xl transition shrink-0"
+              className="p-1.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-xl transition shrink-0 cursor-pointer"
               title="Toggle Theme (Light / Dark)"
               aria-label="Toggle dark mode"
             >
@@ -215,27 +301,11 @@ export default function Navbar({
               )}
             </button>
 
-            {/* Desktop House Action Buttons */}
-            <div className="hidden lg:flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={onOpenCreateHouse}
-                className="text-xs bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-slate-300 font-bold px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-gray-700 transition"
-              >
-                + New House
-              </button>
-              <button
-                onClick={onOpenJoinHouse}
-                className="text-xs bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 font-bold px-2.5 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900 transition"
-              >
-                Join House
-              </button>
-            </div>
-
             {/* Notification Bell */}
             {activeHouse && (
               <button
                 onClick={() => handleNavigate('notifications')}
-                className="relative p-1.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-xl transition shrink-0"
+                className="relative p-1.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-xl transition shrink-0 cursor-pointer"
                 title="Notifications"
                 aria-label={`Notifications (${unreadNotifCount} unread)`}
               >
@@ -251,7 +321,7 @@ export default function Navbar({
             {/* Profile Avatar Button */}
             <button
               onClick={onOpenProfile}
-              className="flex items-center justify-center p-0.5 rounded-full shrink-0 min-w-[32px] min-h-[32px]"
+              className="flex items-center justify-center p-0.5 rounded-full shrink-0 min-w-[32px] min-h-[32px] cursor-pointer"
               title="Profile & Settings"
               aria-label="Profile and Settings"
             >
@@ -262,13 +332,13 @@ export default function Navbar({
               />
             </button>
 
-            {/* Mobile Hamburger Menu Toggle Button */}
+            {/* Mobile/Tablet Navigation Drawer Toggle Button (< lg) */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-menu-drawer"
               aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-              className="md:hidden p-1.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-xl transition shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="lg:hidden p-1.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-xl transition shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
             >
               {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
             </button>
@@ -276,37 +346,7 @@ export default function Navbar({
         </div>
       </div>
 
-      {/* MOBILE ROW 2 SUB-BAR: Schedule & Join Code Controls (< md breakpoint) */}
-      {activeHouse && (
-        <div className="md:hidden border-t border-slate-200/80 dark:border-gray-800/80 bg-slate-50/90 dark:bg-gray-900/90 px-3 py-1.5 flex items-center justify-between gap-2 max-w-full overflow-x-hidden">
-          {/* Interactive Schedule Calendar Opener Button */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowSchedulePreview((prev) => !prev);
-            }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900 font-extrabold text-[11px] xs:text-xs hover:bg-indigo-100 transition shrink-0 cursor-pointer shadow-2xs"
-          >
-            <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>Schedule Calendar</span>
-          </button>
-
-          {/* Copy House Join Code Badge */}
-          <button
-            type="button"
-            onClick={handleCopyCode}
-            title="Copy House Join Code"
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-gray-700 font-mono text-[11px] xs:text-xs font-extrabold hover:bg-indigo-50 dark:hover:bg-gray-700 transition shrink-0 cursor-pointer shadow-2xs"
-          >
-            {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-indigo-500" />}
-            <span className="text-slate-500 font-sans">Code:</span>
-            <span>{activeHouse.invite_code}</span>
-          </button>
-        </div>
-      )}
-
-      {/* Calendar Preview Modal */}
+      {/* Interactive Calendar Preview Modal */}
       <CalendarModal
         isOpen={showSchedulePreview}
         onClose={() => setShowSchedulePreview(false)}
@@ -314,9 +354,9 @@ export default function Navbar({
         currentUser={currentUser}
       />
 
-      {/* Mobile Drawer / Overlay Navigation */}
+      {/* Mobile Drawer / Overlay Navigation (< lg) */}
       {mobileMenuOpen && (
-        <div id="mobile-menu-drawer" className="md:hidden border-t border-slate-200 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg px-4 pt-3 pb-5 space-y-3 shadow-xl transition-all max-w-full overflow-x-hidden">
+        <div id="mobile-menu-drawer" className="lg:hidden border-t border-slate-200 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg px-4 pt-3 pb-5 space-y-3 shadow-xl transition-all max-w-full overflow-x-hidden">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-gray-800">
             <span className="text-xs font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Navigation Menu
