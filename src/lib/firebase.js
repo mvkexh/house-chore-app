@@ -82,7 +82,8 @@ const firebaseConfig = {
 
 export function isFirebaseConfigured() {
   const key = firebaseConfig.apiKey;
-  return Boolean(key) && !key.includes('Mock');
+  const proj = firebaseConfig.projectId;
+  return Boolean(key) && !key.includes('Mock') && !key.includes('YourValid') && Boolean(proj);
 }
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
