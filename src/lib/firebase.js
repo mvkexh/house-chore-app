@@ -25,6 +25,7 @@ import {
   collection,
   query,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 const DIAG_LOGS_KEY = 'roommate_diag_logs_v2';
@@ -294,6 +295,48 @@ export async function dbUpsertUserProfile(userObj) {
 /**
  * Cloud Firestore House Operations
  */
+export async function dbCreateHouseAtomic(houseObj, memberObj) {
+  if (!isFirebaseConfigured()) return houseObj;
+
+  diagStore.log(`Step 4C: Creating house ${houseObj.id} atomically for UID: ${memberObj.user_id}...`, 'info');
+
+  try {
+    const batch = writeBatch(db);
+
+    // 1. House Document
+    const houseRef = doc(db, 'houses', houseObj.id);
+    const houseDocData = {
+      id: houseObj.id,
+      name: houseObj.name,
+      inviteCode: houseObj.invite_code || houseObj.inviteCode,
+      createdBy: houseObj.created_by || houseObj.createdBy,
+      createdAt: houseObj.created_at || houseObj.createdAt || new Date().toISOString(),
+    };
+    batch.set(houseRef, houseDocData);
+
+    // 2. House Member Document
+    const memberDocId = memberObj.id || `${memberObj.house_id}_${memberObj.user_id}`;
+    const memberRef = doc(db, 'houseMembers', memberDocId);
+    const memberDocData = {
+      id: memberDocId,
+      houseId: memberObj.house_id || memberObj.houseId,
+      userId: memberObj.user_id || memberObj.userId,
+      displayName: memberObj.display_name || memberObj.displayName,
+      role: memberObj.role || 'ADMIN',
+      isActive: memberObj.is_active !== undefined ? memberObj.is_active : true,
+      joinedAt: memberObj.joined_at || memberObj.joinedAt || new Date().toISOString(),
+    };
+    batch.set(memberRef, memberDocData);
+
+    await batch.commit();
+    diagStore.log(`Step 4C SUCCESS: House ${houseObj.id} and member ${memberDocId} created atomically`, 'success');
+    return houseObj;
+  } catch (err) {
+    diagStore.log(`Step 4C ERROR: Atomic House Creation failed [${err.code || 'UNKNOWN'}]: ${err.message}`, 'error');
+    throw new Error(`Firestore error creating house: ${err.message}`);
+  }
+}
+
 export async function dbCreateHouse(houseObj) {
   if (!isFirebaseConfigured()) return houseObj;
 
@@ -379,12 +422,12 @@ export async function dbFetchHouseData(houseId) {
     const members = membersSnap.docs.map((d) => {
       const data = d.data();
       return {
-        id: data.id,
+        id: data.id || d.id,
         house_id: data.houseId,
         user_id: data.userId,
         display_name: data.displayName,
         role: data.role,
-        is_active: data.isActive,
+        is_active: data.isActive !== false,
         joined_at: data.joinedAt,
       };
     });
@@ -469,7 +512,7 @@ export async function dbFetchUserHouses(userId) {
     }
 
     const activeMemberDocs = membersSnap.docs.filter((d) => d.data().isActive !== false);
-    const houseIds = [...new Set(activeMemberDocs.map((d) => d.data().houseId))];
+    const houseIds = [...new Set(activeMemberDocs.map((d) => d.data().houseId).filter(Boolean))];
     diagStore.log(`Step 4B SUCCESS: Found ${houseIds.length} active house membership(s) for UID: ${userId}`, 'success');
     
     const housePromises = houseIds.map((hId) => dbFetchHouseData(hId));

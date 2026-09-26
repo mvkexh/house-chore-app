@@ -3,7 +3,7 @@
  */
 import { ROLES, RESPONSIBILITY_STATUS, ASSIGNMENT_SOURCE, CHORE_TYPES, CHORE_FREQUENCIES } from './types';
 import { generateWeeklySchedule, isDateInRange } from './scheduler';
-import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbFetchUserHouses, dbUpsertUserProfile, dbDeleteHouse, dbUpdateMemberDisplayName, signOutUser, isFirebaseConfigured } from './firebase';
+import { dbCreateHouse, dbCreateMember, dbCreateHouseAtomic, dbFetchHouseByCode, dbFetchHouseData, dbFetchUserHouses, dbUpsertUserProfile, dbDeleteHouse, dbUpdateMemberDisplayName, signOutUser, isFirebaseConfigured } from './firebase';
 
 const STORAGE_KEY = 'roommate_chore_manager_db_v4';
 const CURRENT_USER_KEY = 'roommate_chore_manager_user';
@@ -196,10 +196,13 @@ class Store {
   }
 
   async loginWithGoogle(googleProfile = null) {
-    if (!googleProfile) return null;
+    if (!googleProfile || !googleProfile.id) return null;
 
+    const firebaseUid = googleProfile.id;
     const db = this.getRawData();
-    let existingUser = db.users.find((u) => u.email === googleProfile.email || u.id === googleProfile.id);
+
+    // 1. Enforce Google Auth Firebase UID as the permanent user ID
+    let existingUser = db.users.find((u) => u.id === firebaseUid || u.email === googleProfile.email);
 
     const hasChosenName =
       googleProfile.has_chosen_name !== undefined
@@ -208,7 +211,7 @@ class Store {
 
     if (!existingUser) {
       existingUser = {
-        id: googleProfile.id || 'usr_' + Math.random().toString(36).substring(2, 9),
+        id: firebaseUid,
         email: googleProfile.email || 'user@example.com',
         full_name: googleProfile.full_name || '',
         avatar_url: googleProfile.avatar_url || '',
@@ -217,6 +220,18 @@ class Store {
       };
       db.users.push(existingUser);
     } else {
+      const oldId = existingUser.id;
+      existingUser.id = firebaseUid; // Permanent Firebase Auth UID identity
+
+      if (oldId && oldId !== firebaseUid) {
+        // Re-key local house_members references to firebaseUid
+        db.house_members.forEach((hm) => {
+          if (hm.user_id === oldId) {
+            hm.user_id = firebaseUid;
+          }
+        });
+      }
+
       if (googleProfile.full_name) {
         existingUser.full_name = googleProfile.full_name;
       }
@@ -246,8 +261,8 @@ class Store {
       }).catch(() => {});
     }
 
-    // Await user house hydration from Cloud Firestore before notifying UI
-    await this.syncUserHousesFromFirestore(existingUser.id);
+    // Hydrate user houses from Cloud Firestore using permanent Firebase UID
+    await this.syncUserHousesFromFirestore(firebaseUid);
 
     this.notify();
     return existingUser;
@@ -388,47 +403,54 @@ class Store {
     const cleanHouseName = (houseName || '').trim();
     if (!cleanHouseName) throw new Error('Please enter a house name.');
 
-    const db = this.getRawData();
     const houseId = 'house_' + Math.random().toString(36).substring(2, 9);
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    const currentUser = this.getCurrentUser();
+    const effectiveUserId = userId || (currentUser ? currentUser.id : null);
+    if (!effectiveUserId) throw new Error('User authentication required to create a house.');
 
     const newHouse = {
       id: houseId,
       name: cleanHouseName,
       invite_code: inviteCode,
-      created_by: userId,
+      created_by: effectiveUserId,
       created_at: new Date().toISOString(),
     };
 
-    const user = db.users.find((u) => u.id === userId);
     const initialMember = {
-      id: 'hm_' + Math.random().toString(36).substring(2, 9),
+      id: `${houseId}_${effectiveUserId}`,
       house_id: houseId,
-      user_id: userId,
-      display_name: user ? user.full_name : 'Admin',
+      user_id: effectiveUserId,
+      display_name: (currentUser ? currentUser.full_name : '') || 'Admin',
       role: ROLES.ADMIN,
       is_active: true,
       joined_at: new Date().toISOString(),
     };
 
-    // If Firebase Cloud Database is configured, insert to Firestore FIRST
+    // 1. Atomic Firestore Write (houses and houseMembers)
     if (isFirebaseConfigured()) {
-      await dbCreateHouse(newHouse);
-      await dbCreateMember(initialMember);
+      await dbCreateHouseAtomic(newHouse, initialMember);
     }
 
-    db.houses.push(newHouse);
-    db.house_members.push(initialMember);
-    this.saveRawData(db);
+    // 2. Update local state & storage after successful Firestore write
+    const currentRaw = this.getRawData();
+    if (!currentRaw.houses.some((h) => h.id === houseId)) {
+      currentRaw.houses.push(newHouse);
+    }
+    if (!currentRaw.house_members.some((m) => m.id === initialMember.id)) {
+      currentRaw.house_members.push(initialMember);
+    }
+    this.saveRawData(currentRaw);
 
-    // Sync to Shared Cloud Registry
+    // 3. Sync to Shared Cloud Registry
     updateSharedCloudRegistry((cloud) => ({
       ...cloud,
       houses: [...cloud.houses.filter((h) => h.id !== houseId), newHouse],
       house_members: [...cloud.house_members.filter((m) => m.id !== initialMember.id), initialMember],
     }));
 
-    // Sync to Server API
+    // 4. Sync to Server API
     if (typeof fetch !== 'undefined') {
       fetch('/api/houses', {
         method: 'POST',
