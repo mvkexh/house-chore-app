@@ -202,20 +202,15 @@ class Store {
     const db = this.getRawData();
 
     // 1. Enforce Google Auth Firebase UID as the permanent user ID
-    let existingUser = db.users.find((u) => u.id === firebaseUid || u.email === googleProfile.email);
-
-    const hasChosenName =
-      googleProfile.has_chosen_name !== undefined
-        ? googleProfile.has_chosen_name
-        : Boolean(googleProfile.full_name && googleProfile.full_name.trim());
+    let existingUser = db.users.find((u) => u.id === firebaseUid || (googleProfile.email && u.email === googleProfile.email));
 
     if (!existingUser) {
       existingUser = {
         id: firebaseUid,
         email: googleProfile.email || 'user@example.com',
-        full_name: googleProfile.full_name || '',
+        full_name: googleProfile.full_name || googleProfile.email?.split('@')[0] || 'User',
         avatar_url: googleProfile.avatar_url || '',
-        has_chosen_name: hasChosenName,
+        has_chosen_name: true,
         created_at: new Date().toISOString(),
       };
       db.users.push(existingUser);
@@ -226,8 +221,9 @@ class Store {
       if (oldId && oldId !== firebaseUid) {
         // Re-key local house_members references to firebaseUid
         db.house_members.forEach((hm) => {
-          if (hm.user_id === oldId) {
+          if (hm.user_id === oldId || hm.userId === oldId) {
             hm.user_id = firebaseUid;
+            hm.userId = firebaseUid;
           }
         });
       }
@@ -236,11 +232,7 @@ class Store {
         existingUser.full_name = googleProfile.full_name;
       }
       if (googleProfile.avatar_url) existingUser.avatar_url = googleProfile.avatar_url;
-      if (googleProfile.has_chosen_name !== undefined) {
-        existingUser.has_chosen_name = googleProfile.has_chosen_name;
-      } else if (!existingUser.has_chosen_name && existingUser.full_name) {
-        existingUser.has_chosen_name = true;
-      }
+      existingUser.has_chosen_name = true;
     }
     this.saveRawData(db);
 
@@ -446,9 +438,12 @@ class Store {
   }
 
   getUserHouses(userId) {
+    if (!userId) return [];
     const db = this.getRawData();
-    const memberships = db.house_members.filter((hm) => hm.user_id === userId && hm.is_active !== false);
-    const houseIds = memberships.map((m) => m.house_id);
+    const memberships = db.house_members.filter(
+      (hm) => (hm.user_id === userId || hm.userId === userId) && hm.is_active !== false && hm.isActive !== false
+    );
+    const houseIds = memberships.map((m) => m.house_id || m.houseId);
     return db.houses.filter((h) => houseIds.includes(h.id));
   }
 

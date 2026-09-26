@@ -57,7 +57,7 @@ export default function Home() {
     // 2. Auth Session & Firestore House Hydration Flow (Waits for Auth & Firestore BEFORE resolving loading state)
     const setupAuthAndHouses = async () => {
       try {
-        console.log('=== STARTUP PERSISTENCE AUDIT ===');
+        console.log('=== MOBILE STARTUP AUDIT & FIRESTORE HYDRATION ===');
         console.log('1. auth.currentUser (before authStateReady):', auth?.currentUser);
 
         if (auth && typeof auth.authStateReady === 'function') {
@@ -68,64 +68,85 @@ export default function Home() {
         console.log('1. Firebase auth.currentUser (after authStateReady):', firebaseUser);
         console.log('2. Firebase auth.currentUser.uid:', firebaseUser?.uid || 'NULL (Unauthenticated)');
         console.log('3. Firebase auth.currentUser.email:', firebaseUser?.email || 'NULL');
-        console.log('4. Firebase auth persistence mode: browserLocalPersistence');
-        console.log('9. activeHouseId before hydration:', store.getActiveHouseId() || 'NULL');
 
         if (firebaseUser) {
           const googleProfile = {
             id: firebaseUser.uid,
             email: firebaseUser.email,
-            full_name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || '',
+            full_name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
             avatar_url: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(firebaseUser.email || 'user')}`,
-            has_chosen_name: Boolean(firebaseUser.displayName && firebaseUser.displayName.trim()),
+            has_chosen_name: true,
           };
           
           await store.loginWithGoogle(googleProfile);
 
-          // Audit Firestore Membership Query
+          // Audit & Query Firestore Memberships
           if (isFirebaseConfigured()) {
             try {
-              const membersSnap = await getDocs(query(collection(db, 'houseMembers'), where('userId', '==', firebaseUser.uid)));
-              console.log(`5. Firestore query: houseMembers where userId == "${firebaseUser.uid}"`);
-              console.log(`6. Number of matching memberships: ${membersSnap.size}`);
+              let membersQuery = query(collection(db, 'houseMembers'), where('userId', '==', firebaseUser.uid));
+              let membersSnap = await getDocs(membersQuery);
 
-              const activeDocs = membersSnap.docs.filter((d) => d.data().isActive !== false);
-              const houseIds = [...new Set(activeDocs.map((d) => d.data().houseId).filter(Boolean))];
-              console.log('7. Matching house IDs:', houseIds);
+              if (membersSnap.empty) {
+                membersQuery = query(collection(db, 'houseMembers'), where('user_id', '==', firebaseUser.uid));
+                membersSnap = await getDocs(membersQuery);
+              }
 
-              for (const hId of houseIds) {
-                const hSnap = await getDoc(doc(db, 'houses', hId));
-                console.log(`8. Corresponding house doc "${hId}" exists:`, hSnap.exists());
+              console.log('3. Firestore houseMembers query details:');
+              console.log('   - collection: "houseMembers"');
+              console.log(`   - filters: userId == "${firebaseUser.uid}"`);
+              console.log(`   - returned document count: ${membersSnap.size}`);
+              console.log('   - returned document IDs:', membersSnap.docs.map((d) => d.id));
+              console.log('   - returned userId values:', membersSnap.docs.map((d) => d.data().userId || d.data().user_id));
+              console.log('   - returned houseId values:', membersSnap.docs.map((d) => d.data().houseId || d.data().house_id));
+
+              const activeDocs = membersSnap.docs.filter((d) => {
+                const data = d.data();
+                return data.isActive !== false && data.is_active !== false;
+              });
+
+              const houseIds = [...new Set(activeDocs.map((d) => d.data().houseId || d.data().house_id).filter(Boolean))];
+
+              if (houseIds.length > 0) {
+                await store.syncUserHousesFromFirestore(firebaseUser.uid);
+                const currentActive = store.getActiveHouseId();
+                if (!currentActive || !houseIds.includes(currentActive)) {
+                  store.setActiveHouseId(houseIds[0]);
+                }
               }
             } catch (fsErr) {
-              console.error('[STARTUP AUDIT Firestore Error]', fsErr.message);
+              console.error('[FIRESTORE QUERY ERROR] Failed querying houseMembers on mobile:', fsErr);
             }
           }
         } else {
-          console.log('[STARTUP AUDIT] No authenticated Firebase user (CASE A)');
+          console.log('[STARTUP AUDIT] No authenticated Firebase user');
           if (!store.getCurrentUser()) {
             store.clearCurrentUserIfUnauthenticated();
           }
         }
       } catch (err) {
-        console.warn('[Startup Auth Hydration Error]', err);
+        console.error('[Startup Auth Hydration Error]', err);
       } finally {
         initialHydrationDone = true;
-        console.log('10. activeHouseId after hydration:', store.getActiveHouseId() || 'NULL');
 
-        const finalUser = store.getCurrentUser();
-        const finalHouses = finalUser ? store.getUserHouses(finalUser.id) : [];
-        const finalActiveHouse = finalHouses.find((h) => h.id === store.getActiveHouseId()) || (finalHouses.length > 0 ? finalHouses[0] : null);
+        const effectiveUserId = auth?.currentUser?.uid || store.getCurrentUser()?.id;
+        const userHouses = effectiveUserId ? store.getUserHouses(effectiveUserId) : [];
+        const currentActiveId = store.getActiveHouseId();
+        const activeHouse = userHouses.find((h) => h.id === currentActiveId) || (userHouses.length > 0 ? userHouses[0] : null);
 
-        const decision = (!finalUser || !finalUser.has_chosen_name || !finalActiveHouse) ? 'ONBOARDING (Create/Join House)' : 'DASHBOARD';
+        console.log('4. getUserHouses() result:', userHouses);
+        console.log('5. activeHouseId:', currentActiveId || 'NULL');
+        console.log('6. activeHouse:', activeHouse);
 
-        console.log('11. EXACT CODE PATH DECISION:', {
-          currentUser: Boolean(finalUser),
-          currentUserId: finalUser?.id || 'NONE',
-          hasChosenName: Boolean(finalUser?.has_chosen_name),
-          activeHouseId: store.getActiveHouseId() || 'NONE',
-          userHousesCount: finalHouses.length,
-          activeHouseFound: Boolean(finalActiveHouse),
+        const decision = (!auth?.currentUser && !store.getCurrentUser())
+          ? 'LOGIN SCREEN'
+          : (!activeHouse ? 'ONBOARDING (Create/Join House)' : 'DASHBOARD');
+
+        console.log('7. EXACT CODE PATH DECISION:', {
+          firebaseUserUid: auth?.currentUser?.uid || 'NONE',
+          currentUserId: effectiveUserId || 'NONE',
+          userHousesCount: userHouses.length,
+          activeHouseId: currentActiveId || 'NONE',
+          activeHouseFound: Boolean(activeHouse),
           decision: decision,
         });
 
@@ -145,9 +166,9 @@ export default function Home() {
         const googleProfile = {
           id: user.uid,
           email: user.email,
-          full_name: user.displayName || user.email?.split('@')[0] || '',
+          full_name: user.displayName || user.email?.split('@')[0] || 'User',
           avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
-          has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
+          has_chosen_name: true,
         };
         await store.loginWithGoogle(googleProfile);
       } else {
@@ -156,7 +177,6 @@ export default function Home() {
         }
       }
 
-      // ONLY resolve loading state if initial setupAuthAndHouses has completed
       if (isMounted && initialHydrationDone) {
         setIsAuthInitializing(false);
       }
@@ -169,9 +189,9 @@ export default function Home() {
         const googleProfile = {
           id: user.uid,
           email: user.email,
-          full_name: user.displayName || user.email?.split('@')[0] || '',
+          full_name: user.displayName || user.email?.split('@')[0] || 'User',
           avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
-          has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
+          has_chosen_name: true,
         };
         await store.loginWithGoogle(googleProfile);
         if (isMounted && initialHydrationDone) setIsAuthInitializing(false);
@@ -200,7 +220,9 @@ export default function Home() {
     };
   }, [activeHouseId]);
 
-  const userHouses = currentUser ? store.getUserHouses(currentUser.id) : [];
+  const firebaseUser = auth?.currentUser;
+  const effectiveUserId = firebaseUser?.uid || currentUser?.id;
+  const userHouses = effectiveUserId ? store.getUserHouses(effectiveUserId) : [];
   let activeHouse = userHouses.find((h) => h.id === activeHouseId);
 
   if (!activeHouse && userHouses.length > 0) {
@@ -220,12 +242,14 @@ export default function Home() {
     );
   }
 
-  // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen
-  if (!currentUser || !currentUser.has_chosen_name || !activeHouse) {
+  // 1. Not Logged In OR No Active House -> Show Onboarding Screen
+  const effectiveUserObj = currentUser || (firebaseUser ? { id: firebaseUser.uid, email: firebaseUser.email, full_name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User', has_chosen_name: true } : null);
+
+  if (!effectiveUserObj || !activeHouse) {
     return (
       <main className="min-h-screen bg-slate-50 dark:bg-[#090d16] transition-colors">
         <Onboarding
-          currentUser={currentUser}
+          currentUser={effectiveUserObj}
           onComplete={(houseId) => {
             setActiveHouseId(houseId);
             setActiveTab('dashboard');

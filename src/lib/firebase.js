@@ -417,19 +417,25 @@ export async function dbFetchHouseData(houseId) {
 
     const houseData = houseSnap.data();
 
-    // Query members
-    const membersQuery = query(collection(db, 'houseMembers'), where('houseId', '==', houseId));
-    const membersSnap = await getDocs(membersQuery);
+    // Query members (support camelCase 'houseId' and snake_case 'house_id')
+    let membersQuery = query(collection(db, 'houseMembers'), where('houseId', '==', houseId));
+    let membersSnap = await getDocs(membersQuery);
+    if (membersSnap.empty) {
+      const altQuery = query(collection(db, 'houseMembers'), where('house_id', '==', houseId));
+      const altSnap = await getDocs(altQuery);
+      if (!altSnap.empty) membersSnap = altSnap;
+    }
+
     const members = membersSnap.docs.map((d) => {
       const data = d.data();
       return {
         id: data.id || d.id,
-        house_id: data.houseId,
-        user_id: data.userId,
-        display_name: data.displayName,
+        house_id: data.houseId || data.house_id || houseId,
+        user_id: data.userId || data.user_id,
+        display_name: data.displayName || data.display_name,
         role: data.role,
-        is_active: data.isActive !== false,
-        joined_at: data.joinedAt,
+        is_active: data.isActive !== false && data.is_active !== false,
+        joined_at: data.joinedAt || data.joined_at,
       };
     });
 
@@ -455,11 +461,11 @@ export async function dbFetchHouseData(houseId) {
 
     return {
       house: {
-        id: houseData.id,
+        id: houseData.id || houseSnap.id,
         name: houseData.name,
-        invite_code: houseData.inviteCode,
-        created_by: houseData.createdBy,
-        created_at: houseData.createdAt,
+        invite_code: houseData.inviteCode || houseData.invite_code,
+        created_by: houseData.createdBy || houseData.created_by,
+        created_at: houseData.createdAt || houseData.created_at,
       },
       members,
       chores,
@@ -468,8 +474,8 @@ export async function dbFetchHouseData(houseId) {
       attentionRequests,
     };
   } catch (err) {
-    console.error('[Firestore Error] Fetch house data error:', err.message);
-    return null;
+    console.error(`[FIRESTORE HOUSE DATA ERROR] dbFetchHouseData failed for houseId "${houseId}":`, err);
+    throw err;
   }
 }
 
@@ -505,29 +511,43 @@ export async function dbFetchUserHouses(userId) {
   if (!userId || !isFirebaseConfigured()) return [];
   diagStore.log(`Step 4B: Querying houseMembers for UID: ${userId}...`, 'info');
   try {
-    const membersQuery = query(collection(db, 'houseMembers'), where('userId', '==', userId));
-    const membersSnap = await getDocs(membersQuery);
+    let membersQuery = query(collection(db, 'houseMembers'), where('userId', '==', userId));
+    let membersSnap = await getDocs(membersQuery);
+
+    if (membersSnap.empty) {
+      const altQuery = query(collection(db, 'houseMembers'), where('user_id', '==', userId));
+      const altSnap = await getDocs(altQuery);
+      if (!altSnap.empty) {
+        membersSnap = altSnap;
+      }
+    }
+
     if (membersSnap.empty) {
       diagStore.log(`Step 4B NULL: No houseMembers documents found for UID: ${userId}`, 'info');
       return [];
     }
 
-    const activeMemberDocs = membersSnap.docs.filter((d) => d.data().isActive !== false);
-    const houseIds = [...new Set(activeMemberDocs.map((d) => d.data().houseId).filter(Boolean))];
+    const activeMemberDocs = membersSnap.docs.filter((d) => {
+      const data = d.data();
+      return data.isActive !== false && data.is_active !== false;
+    });
+
+    const houseIds = [...new Set(activeMemberDocs.map((d) => d.data().houseId || d.data().house_id).filter(Boolean))];
     diagStore.log(`Step 4B SUCCESS: Found ${houseIds.length} active house membership(s) for UID: ${userId}`, 'success');
     
     const housePromises = houseIds.map((hId) => dbFetchHouseData(hId));
     const housesData = await Promise.all(housePromises);
     return housesData.filter(Boolean);
   } catch (err) {
-    diagStore.log(`Step 4B ERROR: Querying houseMembers failed [${err.code || 'permission-denied'}]: ${err.message}`, 'error');
+    console.error(`[FIRESTORE QUERY ERROR] dbFetchUserHouses failed for UID "${userId}":`, err);
+    diagStore.log(`Step 4B ERROR: Querying houseMembers failed [${err.code || 'UNKNOWN'}]: ${err.message}`, 'error');
     diagStore.update({
-      firestoreStatus: `error (${err.code || 'permission-denied'})`,
-      firestoreError: `[${err.code || 'permission-denied'}] ${err.message}`,
+      firestoreStatus: `error (${err.code || 'UNKNOWN'})`,
+      firestoreError: `[${err.code || 'UNKNOWN'}] ${err.message}`,
       lastErrorCode: err.code || 'FIRESTORE_QUERY_ERR',
       lastErrorMessage: err.message,
     });
-    return [];
+    throw err;
   }
 }
 
