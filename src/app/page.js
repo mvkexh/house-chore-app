@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import DiagnosticPanel from '../components/DiagnosticPanel';
 import { store, syncHouseWithServer } from '../lib/storage';
-import { subscribeToAuthState, handleAuthRedirectResult, diagStore } from '../lib/firebase';
+import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, auth, diagStore } from '../lib/firebase';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import Onboarding from '../components/Onboarding';
@@ -53,7 +53,19 @@ export default function Home() {
       setActiveHouseId(store.getActiveHouseId());
     });
 
-    // 2. Firebase Auth State Change Listener (Google OAuth)
+    // 2. Await Firebase Auth Persistence Initialization (IndexedDB on Mobile/PWA)
+    const initAuthSession = async () => {
+      try {
+        if (auth && typeof auth.authStateReady === 'function') {
+          await auth.authStateReady();
+        }
+      } catch (err) {
+        console.warn('[Auth State Ready Error]', err);
+      }
+    };
+    initAuthSession();
+
+    // 3. Firebase Auth State Change Listener (Google OAuth)
     const unsubscribeAuth = subscribeToAuthState(async (user) => {
       if (!isMounted) return;
 
@@ -88,7 +100,7 @@ export default function Home() {
       }
     });
 
-    // 3. Handle OAuth Redirect Result (if returning from signInWithRedirect)
+    // 4. Handle OAuth Redirect Result (if returning from signInWithRedirect)
     handleAuthRedirectResult().then(async (user) => {
       if (!isMounted) return;
       if (user) {
@@ -112,10 +124,19 @@ export default function Home() {
     };
   }, []);
 
+  // Live Realtime Firestore Listeners for active house (WebSockets / onSnapshot)
   useEffect(() => {
-    if (activeHouseId) {
-      syncHouseWithServer(activeHouseId);
-    }
+    if (!activeHouseId) return;
+
+    syncHouseWithServer(activeHouseId);
+
+    const unsubscribeRealtime = subscribeToHouseRealtimeData(activeHouseId, (realtimeData) => {
+      store.updateRealtimeHouseData(realtimeData);
+    });
+
+    return () => {
+      unsubscribeRealtime();
+    };
   }, [activeHouseId]);
 
   const userHouses = currentUser ? store.getUserHouses(currentUser.id) : [];

@@ -343,6 +343,21 @@ export default function ProfileModal({ currentUser, activeHouse, onClose, onShow
                   {pushPermission === 'granted' ? 'Enabled ✓' : 'Enable'}
                 </button>
               </div>
+
+              {/* Explicit Log Out Section */}
+              <div className="pt-4 border-t border-slate-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    store.logout();
+                  }}
+                  className="w-full py-3 px-4 rounded-xl border border-rose-200 dark:border-rose-900/80 bg-rose-50/50 dark:bg-rose-950/30 hover:bg-rose-100/60 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-extrabold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <LogOut className="w-4 h-4 shrink-0" />
+                  <span>Log out of Account</span>
+                </button>
+              </div>
             </form>
           ) : (
             <HouseSettings

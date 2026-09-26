@@ -26,6 +26,7 @@ import {
   query,
   where,
   writeBatch,
+  onSnapshot,
 } from 'firebase/firestore';
 
 const DIAG_LOGS_KEY = 'roommate_diag_logs_v2';
@@ -528,5 +529,119 @@ export async function dbFetchUserHouses(userId) {
     });
     return [];
   }
+}
+
+/**
+  * Realtime Firestore Subscriptions for PWA / Mobile live updates
+  */
+export function subscribeToHouseRealtimeData(houseId, callback) {
+  if (!houseId || !isFirebaseConfigured()) return () => {};
+
+  diagStore.log(`Subscribing to realtime Firestore snapshots for house: ${houseId}`, 'info');
+
+  const houseRef = doc(db, 'houses', houseId);
+  const membersQuery = query(collection(db, 'houseMembers'), where('houseId', '==', houseId));
+  const choresQuery = query(collection(db, 'chores'), where('houseId', '==', houseId));
+  const assignmentsQuery = query(collection(db, 'assignments'), where('houseId', '==', houseId));
+  const completionsQuery = query(collection(db, 'completionEvents'), where('houseId', '==', houseId));
+  const attnQuery = query(collection(db, 'attentionRequests'), where('houseId', '==', houseId));
+
+  const currentData = {
+    house: null,
+    members: [],
+    chores: [],
+    assignments: [],
+    completions: [],
+    attentionRequests: [],
+  };
+
+  const emit = () => {
+    if (currentData.house) {
+      callback({ ...currentData });
+    }
+  };
+
+  const unsubHouse = onSnapshot(
+    houseRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const d = docSnap.data();
+        currentData.house = {
+          id: d.id || docSnap.id,
+          name: d.name,
+          invite_code: d.inviteCode,
+          created_by: d.createdBy,
+          created_at: d.createdAt,
+        };
+        emit();
+      }
+    },
+    (err) => console.warn('[Realtime House Error]', err.message)
+  );
+
+  const unsubMembers = onSnapshot(
+    membersQuery,
+    (snap) => {
+      currentData.members = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: data.id || d.id,
+          house_id: data.houseId,
+          user_id: data.userId,
+          display_name: data.displayName,
+          role: data.role,
+          is_active: data.isActive !== false,
+          joined_at: data.joinedAt,
+        };
+      });
+      emit();
+    },
+    (err) => console.warn('[Realtime Members Error]', err.message)
+  );
+
+  const unsubChores = onSnapshot(
+    choresQuery,
+    (snap) => {
+      currentData.chores = snap.docs.map((d) => d.data());
+      emit();
+    },
+    (err) => console.warn('[Realtime Chores Error]', err.message)
+  );
+
+  const unsubAssignments = onSnapshot(
+    assignmentsQuery,
+    (snap) => {
+      currentData.assignments = snap.docs.map((d) => d.data());
+      emit();
+    },
+    (err) => console.warn('[Realtime Assignments Error]', err.message)
+  );
+
+  const unsubCompletions = onSnapshot(
+    completionsQuery,
+    (snap) => {
+      currentData.completions = snap.docs.map((d) => d.data());
+      emit();
+    },
+    (err) => console.warn('[Realtime Completions Error]', err.message)
+  );
+
+  const unsubAttn = onSnapshot(
+    attnQuery,
+    (snap) => {
+      currentData.attentionRequests = snap.docs.map((d) => d.data());
+      emit();
+    },
+    (err) => console.warn('[Realtime Attention Error]', err.message)
+  );
+
+  return () => {
+    unsubHouse();
+    unsubMembers();
+    unsubChores();
+    unsubAssignments();
+    unsubCompletions();
+    unsubAttn();
+  };
 }
 

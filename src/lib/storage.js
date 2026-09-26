@@ -326,6 +326,59 @@ class Store {
     }
   }
 
+  updateRealtimeHouseData(hData) {
+    if (!hData || !hData.house) return;
+    const raw = this.getRawData();
+
+    // 1. Update House
+    const hIdx = raw.houses.findIndex((h) => h.id === hData.house.id);
+    if (hIdx >= 0) raw.houses[hIdx] = hData.house;
+    else raw.houses.push(hData.house);
+
+    // 2. Update Members for this house
+    if (Array.isArray(hData.members)) {
+      raw.house_members = [
+        ...raw.house_members.filter((m) => m.house_id !== hData.house.id),
+        ...hData.members,
+      ];
+    }
+
+    // 3. Update Chores for this house
+    if (Array.isArray(hData.chores)) {
+      raw.chores = [
+        ...raw.chores.filter((c) => c.house_id !== hData.house.id),
+        ...hData.chores,
+      ];
+    }
+
+    // 4. Update Assignments for this house
+    if (Array.isArray(hData.assignments)) {
+      raw.assignments = [
+        ...raw.assignments.filter((a) => a.house_id !== hData.house.id),
+        ...hData.assignments,
+      ];
+    }
+
+    // 5. Update Completions for this house
+    if (Array.isArray(hData.completions)) {
+      raw.completion_events = [
+        ...raw.completion_events.filter((ce) => ce.house_id !== hData.house.id),
+        ...hData.completions,
+      ];
+    }
+
+    // 6. Update Attention Requests for this house
+    if (Array.isArray(hData.attentionRequests)) {
+      raw.attention_requests = [
+        ...raw.attention_requests.filter((ar) => ar.house_id !== hData.house.id),
+        ...hData.attentionRequests,
+      ];
+    }
+
+    this.saveRawData(raw);
+    this.notify();
+  }
+
   logout() {
     localStorage.removeItem(CURRENT_USER_KEY);
     localStorage.removeItem(ACTIVE_HOUSE_KEY);
