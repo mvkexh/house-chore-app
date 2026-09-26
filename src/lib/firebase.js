@@ -580,7 +580,30 @@ export async function dbMarkNotificationRead(notificationId) {
   }
 }
 
-const seenNotifIds = new Set();
+export async function dbDeleteNotification(notificationId) {
+  if (!notificationId || !isFirebaseConfigured()) return;
+  try {
+    const ref = doc(db, 'notifications', notificationId);
+    await deleteDoc(ref);
+  } catch (err) {
+    console.error('[Firestore Error] Delete notification error:', err);
+  }
+}
+
+export async function dbClearAllUserNotifications(userId) {
+  if (!userId || !isFirebaseConfigured()) return;
+  try {
+    const q = query(collection(db, 'notifications'), where('userId', '==', userId));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  } catch (err) {
+    console.error('[Firestore Error] Clear all user notifications error:', err);
+  }
+}
 
 export function subscribeToUserNotifications(userId, callback) {
   if (!userId || !isFirebaseConfigured()) return () => {};
@@ -604,25 +627,6 @@ export function subscribeToUserNotifications(userId, callback) {
         };
       }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       
-      // Trigger OS/Browser Push Notification when new unread notification arrives
-      notifications.forEach((n) => {
-        if (!n.is_read && !seenNotifIds.has(n.id)) {
-          seenNotifIds.add(n.id);
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            try {
-              new Notification(n.title || 'Room Buddy Alert', {
-                body: n.message || 'You have a new house update.',
-                icon: 'https://api.dicebear.com/7.x/bottts/svg?seed=roombuddy',
-              });
-            } catch (err) {
-              console.warn('[Browser Push Notification Warning]', err);
-            }
-          }
-        } else if (n.id) {
-          seenNotifIds.add(n.id);
-        }
-      });
-
       callback(notifications);
     },
     (err) => console.warn('[Realtime Notifications Error]', err.message)
@@ -805,7 +809,9 @@ export async function dbFetchUserHouses(userId) {
 export function subscribeToHouseRealtimeData(houseId, callback) {
   if (!houseId || !isFirebaseConfigured()) return () => {};
 
-  diagStore.log(`Subscribing to realtime Firestore snapshots for house: ${houseId}`, 'info');
+  console.log('REALTIME LISTENER STARTED');
+  console.log('UID:', auth?.currentUser?.uid || 'UNAUTHENTICATED');
+  console.log('HOUSE:', houseId);
 
   const houseRef = doc(db, 'houses', houseId);
   const membersQuery = query(collection(db, 'houseMembers'), where('houseId', '==', houseId));
@@ -868,6 +874,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   const unsubChores = onSnapshot(
     choresQuery,
     (snap) => {
+      console.log('CHORES SNAPSHOT:', snap.size);
       currentData.chores = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       emit();
     },
@@ -877,6 +884,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   const unsubAssignments = onSnapshot(
     assignmentsQuery,
     (snap) => {
+      console.log('ASSIGNMENTS SNAPSHOT:', snap.size);
       currentData.assignments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       emit();
     },

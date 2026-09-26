@@ -388,6 +388,7 @@ export default function Home() {
 
         {activeTab === 'notifications' && (
           <NotificationsView
+            currentUser={currentUser}
             notifications={notifications}
             onMarkRead={(id) => store.markNotificationRead(id)}
           />

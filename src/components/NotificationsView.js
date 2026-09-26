@@ -1,17 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { Bell, Check, Clock, ShieldCheck } from 'lucide-react';
+import { Bell, Check, Clock, Trash2, ShieldCheck } from 'lucide-react';
 import { store } from '../lib/storage';
 import { isNotificationSupported, getNotificationPermission, requestNotificationPermission } from '../lib/notifications';
 import { formatDateTime12Hour } from '../lib/formatters';
 
-export default function NotificationsView({ notifications, onMarkRead }) {
+export default function NotificationsView({ currentUser, notifications = [] }) {
   const [pushPermission, setPushPermission] = useState(getNotificationPermission());
 
   const handleTogglePush = async () => {
-    const perm = await requestNotificationPermission();
+    const perm = await requestNotificationPermission(currentUser?.id);
     setPushPermission(perm);
+  };
+
+  const handleClearAll = () => {
+    if (currentUser?.id) {
+      store.clearAllNotifications(currentUser.id);
+    }
   };
 
   return (
@@ -27,18 +33,30 @@ export default function NotificationsView({ notifications, onMarkRead }) {
           </p>
         </div>
 
-        {isNotificationSupported() && (
-          <button
-            onClick={handleTogglePush}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
-              pushPermission === 'granted'
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900'
-                : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-xs'
-            }`}
-          >
-            {pushPermission === 'granted' ? 'Browser Push Enabled ✓' : 'Enable Browser Push'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {notifications.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear All
+            </button>
+          )}
+
+          {isNotificationSupported() && (
+            <button
+              onClick={handleTogglePush}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
+                pushPermission === 'granted'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900'
+                  : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-xs'
+              }`}
+            >
+              {pushPermission === 'granted' ? 'Browser Push Enabled ✓' : 'Enable Browser Push'}
+            </button>
+          )}
+        </div>
       </div>
 
       {notifications.length === 0 ? (
@@ -57,7 +75,7 @@ export default function NotificationsView({ notifications, onMarkRead }) {
                   : 'bg-white dark:bg-gray-800 border-indigo-200 dark:border-indigo-900 shadow-xs'
               }`}
             >
-              <div className="space-y-1">
+              <div className="space-y-1 flex-1">
                 <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
                   {n.title}
                   {!n.is_read && (
@@ -71,15 +89,24 @@ export default function NotificationsView({ notifications, onMarkRead }) {
                 </div>
               </div>
 
-              {!n.is_read && (
+              <div className="flex items-center gap-1">
+                {!n.is_read && (
+                  <button
+                    onClick={() => store.markNotificationRead(n.id)}
+                    className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-gray-700 rounded-lg transition"
+                    title="Mark as Read"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                )}
                 <button
-                  onClick={() => store.markNotificationRead(n.id)}
-                  className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-gray-700 rounded-lg transition"
-                  title="Mark as Read"
+                  onClick={() => store.deleteNotification(n.id)}
+                  className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition"
+                  title="Delete Notification"
                 >
-                  <Check className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
-              )}
+              </div>
             </div>
           ))}
         </div>

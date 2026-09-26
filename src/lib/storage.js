@@ -21,6 +21,8 @@ import {
   dbSaveNotification,
   dbSaveChoreWithAssignmentsAndNotificationsAtomic,
   dbMarkNotificationRead,
+  dbDeleteNotification,
+  dbClearAllUserNotifications,
   signOutUser,
   isFirebaseConfigured,
 } from './firebase';
@@ -446,6 +448,7 @@ class Store {
       ];
     }
 
+    console.log('STATE UPDATED');
     this.saveRawData(raw);
     this.notify();
   }
@@ -1786,6 +1789,28 @@ class Store {
     }
     if (isFirebaseConfigured()) {
       await dbMarkNotificationRead(notificationId);
+    }
+    this.notify();
+  }
+
+  async deleteNotification(notificationId) {
+    if (!notificationId) return;
+    const db = this.getRawData();
+    db.notifications = db.notifications.filter((n) => n.id !== notificationId);
+    this.saveRawData(db);
+    if (isFirebaseConfigured()) {
+      await dbDeleteNotification(notificationId);
+    }
+    this.notify();
+  }
+
+  async clearAllNotifications(userId) {
+    if (!userId) return;
+    const db = this.getRawData();
+    db.notifications = db.notifications.filter((n) => n.user_id !== userId && n.userId !== userId);
+    this.saveRawData(db);
+    if (isFirebaseConfigured()) {
+      await dbClearAllUserNotifications(userId);
     }
     this.notify();
   }
