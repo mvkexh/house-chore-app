@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import DiagnosticPanel from '../components/DiagnosticPanel';
 import { store, syncHouseWithServer } from '../lib/storage';
-import { subscribeToAuthState, handleAuthRedirectResult } from '../lib/firebase';
+import { subscribeToAuthState, handleAuthRedirectResult, diagStore } from '../lib/firebase';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import Onboarding from '../components/Onboarding';
@@ -56,10 +57,8 @@ export default function Home() {
     const unsubscribeAuth = subscribeToAuthState(async (user) => {
       if (!isMounted) return;
 
-      console.log('[Auth Flow] 4. onAuthStateChanged user:', user ? user.email : 'null');
-
       if (user) {
-        console.log('[Auth Flow] 3. Firebase UID:', user.uid);
+        diagStore.log(`Step 3: Processing authenticated user ${user.email} (UID: ${user.uid})`, 'info');
         const googleProfile = {
           id: user.uid,
           email: user.email,
@@ -72,12 +71,13 @@ export default function Home() {
         const updatedUser = store.getCurrentUser();
         const userHouses = updatedUser ? store.getUserHouses(updatedUser.id) : [];
         let destination = 'Dashboard';
-        if (!updatedUser) destination = 'Onboarding Step A (Login)';
+        if (!updatedUser) destination = 'Onboarding Step A (Sign In Screen)';
         else if (!updatedUser.has_chosen_name) destination = 'Onboarding Step B (Name Setup)';
         else if (userHouses.length === 0) destination = 'Onboarding Step C (House Setup)';
 
-        console.log('[Auth Flow] 5. Redirect destination:', destination);
+        diagStore.log(`Step 5 DECISION: Auth guard destination -> ${destination}`, destination === 'Dashboard' ? 'success' : 'info');
       } else {
+        diagStore.log('Step 3: Unauthenticated state observed', 'info');
         if (!store.getCurrentUser()) {
           store.clearCurrentUserIfUnauthenticated();
         }
@@ -92,8 +92,7 @@ export default function Home() {
     handleAuthRedirectResult().then(async (user) => {
       if (!isMounted) return;
       if (user) {
-        console.log('[Auth Flow] 2. Google result received (redirect):', user.email);
-        console.log('[Auth Flow] 3. Firebase UID:', user.uid);
+        diagStore.log(`Step 2: Processing redirect user ${user.email} (UID: ${user.uid})`, 'info');
         const googleProfile = {
           id: user.uid,
           email: user.email,
@@ -129,26 +128,30 @@ export default function Home() {
     }
   }
 
-  // 0. Auth Initializing State -> Render Loading Spinner, NOT Login Page!
+  // 0. Auth Initializing State -> Render Diagnostic Panel + Loading Spinner
   if (isAuthInitializing) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+      <main className="min-h-screen pt-40 flex flex-col items-center justify-center bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+        <DiagnosticPanel />
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">Verifying session...</p>
-      </div>
+        <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">Verifying session & Firestore profiles...</p>
+      </main>
     );
   }
 
-  // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen
+  // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen + Diagnostic Panel
   if (!currentUser || !currentUser.has_chosen_name || !activeHouse) {
     return (
-      <Onboarding
-        currentUser={currentUser}
-        onComplete={(houseId) => {
-          setActiveHouseId(houseId);
-          setActiveTab('dashboard');
-        }}
-      />
+      <main className="min-h-screen pt-40 bg-slate-50 dark:bg-[#090d16] transition-colors">
+        <DiagnosticPanel />
+        <Onboarding
+          currentUser={currentUser}
+          onComplete={(houseId) => {
+            setActiveHouseId(houseId);
+            setActiveTab('dashboard');
+          }}
+        />
+      </main>
     );
   }
 
@@ -203,7 +206,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen pt-40 flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+      <DiagnosticPanel />
       {/* Top Navbar */}
       <Navbar
         currentUser={currentUser}

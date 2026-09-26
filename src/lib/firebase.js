@@ -27,6 +27,50 @@ import {
   where,
 } from 'firebase/firestore';
 
+class DiagnosticStore {
+  constructor() {
+    this.listeners = [];
+    this.state = {
+      firebaseConfigured: false,
+      firebaseUser: null,
+      uid: 'NONE',
+      isInitializing: true,
+      redirectResult: 'pending',
+      firestoreStatus: 'pending',
+      firestoreError: null,
+      lastErrorCode: 'NONE',
+      lastErrorMessage: null,
+    };
+    this.logs = [];
+  }
+
+  subscribe(listener) {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  notify() {
+    this.listeners.forEach((l) => l());
+  }
+
+  log(msg, type = 'info') {
+    const time = new Date().toLocaleTimeString();
+    console.log(`[Auth Flow Diagnostic] [${time}] ${msg}`);
+    this.logs.unshift({ time, msg, type });
+    if (this.logs.length > 50) this.logs.pop();
+    this.notify();
+  }
+
+  update(patch) {
+    this.state = { ...this.state, ...patch };
+    this.notify();
+  }
+}
+
+export const diagStore = new DiagnosticStore();
+
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyDbzM0q_IdhC3vp4d5W3WgD3xZvNtoA46I',
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'device-streaming-3f82148c.firebaseapp.com',
@@ -47,8 +91,17 @@ export const db = getFirestore(app);
 
 // Ensure local persistence for cross-tab and cross-redirect auth state
 if (typeof window !== 'undefined') {
+  const isConfigured = isFirebaseConfigured();
+  diagStore.update({
+    firebaseConfigured: isConfigured,
+    firebaseUser: auth.currentUser ? auth.currentUser.email : null,
+    uid: auth.currentUser ? auth.currentUser.uid : 'NONE',
+  });
+  diagStore.log(`Init: Firebase initialized. Configured: ${isConfigured ? 'YES ✅' : 'NO ❌'}`);
+
   setPersistence(auth, browserLocalPersistence).catch((err) => {
-    console.warn('[Firebase Auth] Persistence initialization error:', err.message);
+    diagStore.log(`Init Error: Persistence error [${err.code || 'UNKNOWN'}] ${err.message}`, 'error');
+    diagStore.update({ lastErrorCode: err.code || 'PERSISTENCE_ERR', lastErrorMessage: err.message });
   });
 }
 
@@ -61,26 +114,34 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export async function signInWithGoogle() {
   if (typeof window === 'undefined') return;
 
-  console.log('[Auth Flow] 1. signInWithGoogle started');
+  diagStore.log('Step 1: signInWithGoogle button clicked', 'info');
 
   if (!isFirebaseConfigured()) {
-    throw new Error(
-      'Firebase Auth Configuration Error: Invalid or missing API Key. Please configure NEXT_PUBLIC_FIREBASE_API_KEY and NEXT_PUBLIC_FIREBASE_PROJECT_ID environment variables in your environment configuration.'
-    );
+    const errStr = 'Firebase Auth Configuration Error: Invalid or missing API Key.';
+    diagStore.log(`Step 1 ERROR: ${errStr}`, 'error');
+    diagStore.update({ lastErrorCode: 'MISSING_CONFIG', lastErrorMessage: errStr });
+    throw new Error(errStr);
   }
 
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
 
   try {
+    diagStore.log('Step 1: Invoking signInWithPopup...', 'info');
     const result = await signInWithPopup(auth, provider);
     if (result && result.user) {
-      console.log('[Auth Flow] 2. Google result received:', result.user.email);
-      console.log('[Auth Flow] 3. Firebase UID:', result.user.uid);
+      diagStore.log(`Step 1 SUCCESS: Popup signed in as ${result.user.email} (UID: ${result.user.uid})`, 'success');
+      diagStore.update({
+        firebaseUser: result.user.email,
+        uid: result.user.uid,
+        lastErrorCode: 'NONE',
+        lastErrorMessage: null,
+      });
     }
     return result;
   } catch (error) {
-    console.warn('[Firebase Auth Warning] Popup sign-in error:', error.code, error.message);
+    diagStore.log(`Step 1 Warning: Popup sign-in error [${error.code}] ${error.message}`, 'error');
+    diagStore.update({ lastErrorCode: error.code || 'POPUP_ERR', lastErrorMessage: error.message });
     
     // Automatically trigger signInWithRedirect fallback when popup is blocked by browser or closed
     if (
@@ -88,40 +149,76 @@ export async function signInWithGoogle() {
       error.code === 'auth/popup-closed-by-user' ||
       error.message?.includes('popup-blocked')
     ) {
-      console.log('[Firebase Auth] Popup blocked/closed. Initiating signInWithRedirect...');
+      diagStore.log('Step 1 Fallback: Popup blocked/closed. Calling signInWithRedirect...', 'info');
       await signInWithRedirect(auth, provider);
       return null;
     }
     
-    throw new Error(`Google Sign-In Error: ${error.message}`);
+    throw new Error(`Google Sign-In Error: [${error.code}] ${error.message}`);
   }
 }
 
 export async function handleAuthRedirectResult() {
   if (typeof window === 'undefined') return null;
+  diagStore.log('Step 2: Executing getRedirectResult()...', 'info');
   try {
     const result = await getRedirectResult(auth);
     if (result && result.user) {
-      console.log('[Auth Flow] 2. Google result received (redirect):', result.user.email);
-      console.log('[Auth Flow] 3. Firebase UID:', result.user.uid);
+      diagStore.log(`Step 2 SUCCESS: getRedirectResult returned user ${result.user.email} (UID: ${result.user.uid})`, 'success');
+      diagStore.update({
+        redirectResult: 'success',
+        firebaseUser: result.user.email,
+        uid: result.user.uid,
+        lastErrorCode: 'NONE',
+        lastErrorMessage: null,
+      });
       return result.user;
+    } else {
+      diagStore.log('Step 2 NULL: getRedirectResult returned null (No redirect payload)', 'info');
+      diagStore.update({ redirectResult: 'null' });
     }
   } catch (error) {
-    console.error('[Firebase Auth Error] getRedirectResult Error:', error.message);
+    diagStore.log(`Step 2 ERROR: getRedirectResult failed [${error.code}] ${error.message}`, 'error');
+    diagStore.update({
+      redirectResult: 'error',
+      lastErrorCode: error.code || 'REDIRECT_ERR',
+      lastErrorMessage: error.message,
+    });
   }
   return null;
 }
 
 export async function signOutUser() {
+  diagStore.log('Step Logout: User initiated logout', 'info');
   try {
     await firebaseSignOut(auth);
+    diagStore.log('Step Logout SUCCESS: User signed out from Firebase Auth', 'success');
+    diagStore.update({ firebaseUser: null, uid: 'NONE' });
   } catch (err) {
-    console.warn('[Firebase Auth Warning] Sign out error:', err.message);
+    diagStore.log(`Step Logout Warning: [${err.code}] ${err.message}`, 'error');
   }
 }
 
 export function subscribeToAuthState(callback) {
-  return firebaseOnAuthStateChanged(auth, callback);
+  diagStore.log('Step 3: Registering onAuthStateChanged listener', 'info');
+  return firebaseOnAuthStateChanged(auth, (user) => {
+    if (user) {
+      diagStore.log(`Step 3 SUCCESS: onAuthStateChanged user: ${user.email} (UID: ${user.uid})`, 'success');
+      diagStore.update({
+        firebaseUser: user.email,
+        uid: user.uid,
+        isInitializing: false,
+      });
+    } else {
+      diagStore.log('Step 3 NULL: onAuthStateChanged user is null (No active session)', 'info');
+      diagStore.update({
+        firebaseUser: null,
+        uid: auth.currentUser ? auth.currentUser.uid : 'NONE',
+        isInitializing: false,
+      });
+    }
+    callback(user);
+  });
 }
 
 /**
@@ -131,6 +228,7 @@ export async function dbUpsertUserProfile(userObj) {
   if (!userObj || !userObj.id) return userObj;
   if (!isFirebaseConfigured()) return userObj;
 
+  diagStore.log(`Step 4A: Writing Firestore profile for UID: ${userObj.id}...`, 'info');
   try {
     const userRef = doc(db, 'users', userObj.id);
     const profileData = {
@@ -138,13 +236,20 @@ export async function dbUpsertUserProfile(userObj) {
       email: userObj.email,
       fullName: userObj.full_name || userObj.fullName,
       avatarUrl: userObj.avatar_url || userObj.avatarUrl,
-      hasChosenName: Boolean(userObj.has_chosen_name || userObj.hasChosenName),
       updatedAt: new Date().toISOString(),
     };
     await setDoc(userRef, profileData, { merge: true });
+    diagStore.log(`Step 4A SUCCESS: Firestore profile written for UID: ${userObj.id}`, 'success');
+    diagStore.update({ firestoreStatus: 'success', firestoreError: null });
     return userObj;
   } catch (err) {
-    console.error('[Firestore Error] Profile upsert error:', err.message);
+    diagStore.log(`Step 4A ERROR: Firestore profile write failed [${err.code}]: ${err.message}`, 'error');
+    diagStore.update({
+      firestoreStatus: `error (${err.code || 'permission-denied'})`,
+      firestoreError: `[${err.code || 'permission-denied'}] ${err.message}`,
+      lastErrorCode: err.code || 'FIRESTORE_WRITE_ERR',
+      lastErrorMessage: err.message,
+    });
     return userObj;
   }
 }
@@ -317,19 +422,30 @@ export async function dbUpdateMemberDisplayName(userId, newDisplayName) {
 
 export async function dbFetchUserHouses(userId) {
   if (!userId || !isFirebaseConfigured()) return [];
+  diagStore.log(`Step 4B: Querying houseMembers for UID: ${userId}...`, 'info');
   try {
     const membersQuery = query(collection(db, 'houseMembers'), where('userId', '==', userId));
     const membersSnap = await getDocs(membersQuery);
-    if (membersSnap.empty) return [];
+    if (membersSnap.empty) {
+      diagStore.log(`Step 4B NULL: No houseMembers documents found for UID: ${userId}`, 'info');
+      return [];
+    }
 
     const activeMemberDocs = membersSnap.docs.filter((d) => d.data().isActive !== false);
     const houseIds = [...new Set(activeMemberDocs.map((d) => d.data().houseId))];
+    diagStore.log(`Step 4B SUCCESS: Found ${houseIds.length} active house membership(s) for UID: ${userId}`, 'success');
     
     const housePromises = houseIds.map((hId) => dbFetchHouseData(hId));
     const housesData = await Promise.all(housePromises);
     return housesData.filter(Boolean);
   } catch (err) {
-    console.error('[Firestore Error] Fetch user houses error:', err.message);
+    diagStore.log(`Step 4B ERROR: Querying houseMembers failed [${err.code || 'permission-denied'}]: ${err.message}`, 'error');
+    diagStore.update({
+      firestoreStatus: `error (${err.code || 'permission-denied'})`,
+      firestoreError: `[${err.code || 'permission-denied'}] ${err.message}`,
+      lastErrorCode: err.code || 'FIRESTORE_QUERY_ERR',
+      lastErrorMessage: err.message,
+    });
     return [];
   }
 }
