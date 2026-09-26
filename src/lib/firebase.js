@@ -26,20 +26,17 @@ import {
 } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyMockApiKeyForRoommateChoreManager',
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'roommate-chore-manager.firebaseapp.com',
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'roommate-chore-manager',
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'roommate-chore-manager.appspot.com',
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '123456789012',
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '1:123456789012:web:abcdef1234567890',
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyDbzM0q_IdhC3vp4d5W3WgD3xZvNtoA46I',
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'device-streaming-3f82148c.firebaseapp.com',
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'device-streaming-3f82148c',
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'device-streaming-3f82148c.firebasestorage.app',
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '165171432088',
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '1:165171432088:web:3e08207a867aadb2419eed',
 };
 
 export function isFirebaseConfigured() {
-  return (
-    Boolean(process.env.NEXT_PUBLIC_FIREBASE_API_KEY) &&
-    !process.env.NEXT_PUBLIC_FIREBASE_API_KEY.includes('Mock') &&
-    Boolean(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID)
-  );
+  const key = firebaseConfig.apiKey;
+  return Boolean(key) && !key.includes('Mock');
 }
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
