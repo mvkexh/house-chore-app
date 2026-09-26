@@ -21,9 +21,15 @@ export default function DiagnosticPanel() {
       <div className="max-w-6xl mx-auto space-y-2">
         <div className="flex items-center justify-between font-bold text-indigo-400 border-b border-slate-800 pb-1">
           <span className="flex items-center gap-2 text-sm">
-            <span>⚡ REAL-TIME AUTHENTICATION DIAGNOSTIC PANEL</span>
+            <span>⚡ REAL-TIME PERSISTENT AUTHENTICATION DIAGNOSTIC PANEL</span>
           </span>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => diagStore.clearLogs()}
+              className="px-2 py-0.5 rounded bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 text-[10px] transition cursor-pointer"
+            >
+              Clear Logs
+            </button>
             <span
               className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${
                 diagState.isInitializing
@@ -67,6 +73,19 @@ export default function DiagnosticPanel() {
               </div>
 
               <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Persistence Configured:</span>
+                <strong
+                  className={
+                    diagState.persistenceConfigured === 'SUCCESS'
+                      ? 'text-emerald-400 font-bold'
+                      : 'text-amber-400 font-bold'
+                  }
+                >
+                  {diagState.persistenceConfigured}
+                </strong>
+              </div>
+
+              <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
                 <span className="text-slate-400 block text-[10px]">Redirect Result:</span>
                 <strong
                   className={
@@ -96,8 +115,8 @@ export default function DiagnosticPanel() {
                 </strong>
               </div>
 
-              <div className="p-1.5 rounded bg-slate-900 border border-slate-800 col-span-2">
-                <span className="text-slate-400 block text-[10px]">Last Auth Error Code:</span>
+              <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Last Auth Error:</span>
                 <strong
                   className={
                     diagState.lastErrorCode !== 'NONE'
@@ -122,9 +141,10 @@ export default function DiagnosticPanel() {
               </div>
             )}
 
-            <div className="bg-slate-900 p-2 rounded border border-slate-800 max-h-32 overflow-y-auto space-y-1 font-mono text-[10px]">
-              <div className="text-slate-500 font-bold text-[9px] uppercase border-b border-slate-800 pb-0.5 mb-1">
-                Live Lifecycle Stream ({logs.length} events)
+            <div className="bg-slate-900 p-2 rounded border border-slate-800 max-h-36 overflow-y-auto space-y-1 font-mono text-[10px]">
+              <div className="text-slate-500 font-bold text-[9px] uppercase border-b border-slate-800 pb-0.5 mb-1 flex justify-between">
+                <span>Persistent Lifecycle Stream ({logs.length} events)</span>
+                <span className="text-slate-600">Saved across reloads</span>
               </div>
               {logs.map((log, index) => (
                 <div
@@ -137,7 +157,7 @@ export default function DiagnosticPanel() {
                       : 'text-indigo-300'
                   }
                 >
-                  {log.msg}
+                  [{log.time}] {log.msg}
                 </div>
               ))}
             </div>

@@ -27,10 +27,44 @@ import {
   where,
 } from 'firebase/firestore';
 
+const DIAG_LOGS_KEY = 'roommate_diag_logs_v2';
+const DIAG_STATE_KEY = 'roommate_diag_state_v2';
+
 class DiagnosticStore {
   constructor() {
     this.listeners = [];
-    this.state = {
+    this.state = this.loadState();
+    this.logs = this.loadLogs();
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => {
+        this.log('[UNLOAD EVENT] Page is reloading / navigating away', 'error');
+      });
+    }
+  }
+
+  loadState() {
+    if (typeof window === 'undefined') return this.defaultState();
+    try {
+      const raw = sessionStorage.getItem(DIAG_STATE_KEY);
+      return raw ? JSON.parse(raw) : this.defaultState();
+    } catch (e) {
+      return this.defaultState();
+    }
+  }
+
+  loadLogs() {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = sessionStorage.getItem(DIAG_LOGS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  defaultState() {
+    return {
       firebaseConfigured: false,
       firebaseUser: null,
       uid: 'NONE',
@@ -40,8 +74,8 @@ class DiagnosticStore {
       firestoreError: null,
       lastErrorCode: 'NONE',
       lastErrorMessage: null,
+      persistenceConfigured: 'pending',
     };
-    this.logs = [];
   }
 
   subscribe(listener) {
@@ -59,12 +93,32 @@ class DiagnosticStore {
     const time = new Date().toLocaleTimeString();
     console.log(`[Auth Flow Diagnostic] [${time}] ${msg}`);
     this.logs.unshift({ time, msg, type });
-    if (this.logs.length > 50) this.logs.pop();
+    if (this.logs.length > 80) this.logs.pop();
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(DIAG_LOGS_KEY, JSON.stringify(this.logs));
+      } catch (e) {}
+    }
     this.notify();
   }
 
   update(patch) {
     this.state = { ...this.state, ...patch };
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(DIAG_STATE_KEY, JSON.stringify(this.state));
+      } catch (e) {}
+    }
+    this.notify();
+  }
+
+  clearLogs() {
+    this.logs = [];
+    this.state = this.defaultState();
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(DIAG_LOGS_KEY);
+      sessionStorage.removeItem(DIAG_STATE_KEY);
+    }
     this.notify();
   }
 }
@@ -90,6 +144,8 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
+export let persistencePromise = Promise.resolve();
+
 // Ensure local persistence for cross-tab and cross-redirect auth state
 if (typeof window !== 'undefined') {
   const isConfigured = isFirebaseConfigured();
@@ -100,10 +156,19 @@ if (typeof window !== 'undefined') {
   });
   diagStore.log(`Init: Firebase initialized. Configured: ${isConfigured ? 'YES ✅' : 'NO ❌'}`);
 
-  setPersistence(auth, browserLocalPersistence).catch((err) => {
-    diagStore.log(`Init Error: Persistence error [${err.code || 'UNKNOWN'}] ${err.message}`, 'error');
-    diagStore.update({ lastErrorCode: err.code || 'PERSISTENCE_ERR', lastErrorMessage: err.message });
-  });
+  persistencePromise = setPersistence(auth, browserLocalPersistence)
+    .then(() => {
+      diagStore.log('persistence configured = SUCCESS (browserLocalPersistence)', 'success');
+      diagStore.update({ persistenceConfigured: 'SUCCESS' });
+    })
+    .catch((err) => {
+      diagStore.log(`persistence configured = ERROR [${err.code || 'UNKNOWN'}] ${err.message}`, 'error');
+      diagStore.update({
+        persistenceConfigured: `ERROR (${err.code})`,
+        lastErrorCode: err.code || 'PERSISTENCE_ERR',
+        lastErrorMessage: err.message,
+      });
+    });
 }
 
 const googleProvider = new GoogleAuthProvider();
@@ -115,23 +180,28 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export async function signInWithGoogle() {
   if (typeof window === 'undefined') return;
 
-  diagStore.log('Step 1: signInWithGoogle button clicked', 'info');
+  diagStore.log('BUTTON CLICKED', 'info');
+  diagStore.log('signInWithPopup START', 'info');
 
   if (!isFirebaseConfigured()) {
     const errStr = 'Firebase Auth Configuration Error: Invalid or missing credentials.';
-    diagStore.log(`Step 1 ERROR: ${errStr}`, 'error');
+    diagStore.log(`signInWithPopup ERROR: ${errStr}`, 'error');
     diagStore.update({ lastErrorCode: 'MISSING_CONFIG', lastErrorMessage: errStr });
     throw new Error(errStr);
   }
+
+  await persistencePromise;
+  diagStore.log(`persistence configured = ${diagStore.state.persistenceConfigured}`, 'info');
 
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
 
   try {
-    diagStore.log('Step 1: Invoking signInWithPopup (Popup Flow)...', 'info');
     const result = await signInWithPopup(auth, provider);
     if (result && result.user) {
-      diagStore.log(`Step 1 SUCCESS: Popup signed in as ${result.user.email} (UID: ${result.user.uid})`, 'success');
+      diagStore.log('signInWithPopup SUCCESS', 'success');
+      diagStore.log(`UserCredential UID = ${result.user.uid}`, 'success');
+      diagStore.log(`auth.currentUser UID = ${auth.currentUser ? auth.currentUser.uid : 'null'}`, 'success');
       diagStore.update({
         firebaseUser: result.user.email,
         uid: result.user.uid,
@@ -141,16 +211,18 @@ export async function signInWithGoogle() {
     }
     return result;
   } catch (error) {
-    diagStore.log(`Step 1 Warning: Popup error [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
+    diagStore.log(`signInWithPopup Warning: [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
     diagStore.update({ lastErrorCode: error.code || 'POPUP_ERR', lastErrorMessage: error.message });
 
-    // Automatic fallback to signInWithRedirect when popup is blocked by browser or closed
     if (
       error.code === 'auth/popup-blocked' ||
       error.code === 'auth/popup-closed-by-user' ||
       error.message?.includes('popup-blocked')
     ) {
       diagStore.log('Step 1 Fallback: Popup blocked/closed. Initiating signInWithRedirect...', 'info');
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('firebase_redirect_initiated', 'true');
+      }
       await signInWithRedirect(auth, provider);
       return null;
     }
@@ -161,11 +233,22 @@ export async function signInWithGoogle() {
 
 export async function handleAuthRedirectResult() {
   if (typeof window === 'undefined') return null;
-  diagStore.log('Step 2: Executing getRedirectResult()...', 'info');
+
+  const redirectInitiated = sessionStorage.getItem('firebase_redirect_initiated') === 'true';
+  if (!redirectInitiated) {
+    diagStore.log('getRedirectResult() skipped (No pending redirect flow initiated)', 'info');
+    diagStore.update({ redirectResult: 'skipped' });
+    return null;
+  }
+
+  diagStore.log('getRedirectResult() START...', 'info');
   try {
     const result = await getRedirectResult(auth);
+    sessionStorage.removeItem('firebase_redirect_initiated');
+
     if (result && result.user) {
-      diagStore.log(`Step 2 SUCCESS: getRedirectResult returned user ${result.user.email} (UID: ${result.user.uid})`, 'success');
+      diagStore.log(`getRedirectResult() SUCCESS: user ${result.user.email} (UserCredential UID = ${result.user.uid})`, 'success');
+      diagStore.log(`auth.currentUser UID = ${auth.currentUser ? auth.currentUser.uid : 'null'}`, 'success');
       diagStore.update({
         redirectResult: 'success',
         firebaseUser: result.user.email,
@@ -175,11 +258,12 @@ export async function handleAuthRedirectResult() {
       });
       return result.user;
     } else {
-      diagStore.log('Step 2 NULL: getRedirectResult returned null (No redirect payload)', 'info');
+      diagStore.log('getRedirectResult() NULL: returned null (No redirect payload)', 'info');
       diagStore.update({ redirectResult: 'null' });
     }
   } catch (error) {
-    diagStore.log(`Step 2 ERROR: getRedirectResult failed [${error.code}] ${error.message}`, 'error');
+    sessionStorage.removeItem('firebase_redirect_initiated');
+    diagStore.log(`getRedirectResult() ERROR: failed [${error.code || 'REDIRECT_ERR'}] ${error.message}`, 'error');
     diagStore.update({
       redirectResult: 'error',
       lastErrorCode: error.code || 'REDIRECT_ERR',
@@ -201,17 +285,18 @@ export async function signOutUser() {
 }
 
 export function subscribeToAuthState(callback) {
-  diagStore.log('Step 3: Registering onAuthStateChanged listener', 'info');
+  diagStore.log('onAuthStateChanged = LISTENER_REGISTERED', 'info');
   return firebaseOnAuthStateChanged(auth, (user) => {
     if (user) {
-      diagStore.log(`Step 3 SUCCESS: onAuthStateChanged user: ${user.email} (UID: ${user.uid})`, 'success');
+      diagStore.log(`onAuthStateChanged = USER_AUTHENTICATED (${user.email}) | UID = ${user.uid}`, 'success');
+      diagStore.log(`auth.currentUser UID = ${auth.currentUser ? auth.currentUser.uid : 'null'}`, 'success');
       diagStore.update({
         firebaseUser: user.email,
         uid: user.uid,
         isInitializing: false,
       });
     } else {
-      diagStore.log('Step 3 NULL: onAuthStateChanged user is null (No active session)', 'info');
+      diagStore.log(`onAuthStateChanged = NULL (auth.currentUser = ${auth.currentUser ? auth.currentUser.uid : 'null'})`, 'info');
       diagStore.update({
         firebaseUser: null,
         uid: auth.currentUser ? auth.currentUser.uid : 'NONE',
