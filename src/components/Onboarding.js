@@ -26,28 +26,31 @@ export default function Onboarding({ currentUser, onComplete }) {
     }
   }, [currentUser]);
 
-  // 1. Handle Google OAuth Popup Login
-  const handleTriggerGoogleOAuth = async () => {
-    setIsSigningInOAuth(true);
+  const handleTriggerGoogleOAuth = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     setErrorMessage('');
-    try {
-      const res = await signInWithGoogle();
-      if (res && res.user) {
-        const u = res.user;
-        await store.loginWithGoogle({
-          id: u.uid,
-          email: u.email || 'user@example.com',
-          full_name: u.displayName || '',
-          avatar_url: u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.email || 'user')}`,
-          has_chosen_name: Boolean(u.displayName && u.displayName.trim()),
-        });
-      }
-    } catch (err) {
-      console.warn('[Google OAuth Popup Warning]', err);
-      setErrorMessage(err.message || 'Google Sign-In failed. Please try again.');
-    } finally {
-      setIsSigningInOAuth(false);
-    }
+    setIsSigningInOAuth(true);
+
+    signInWithGoogle()
+      .then(async (res) => {
+        if (res && res.user) {
+          const u = res.user;
+          await store.loginWithGoogle({
+            id: u.uid,
+            email: u.email || 'user@example.com',
+            full_name: u.displayName || '',
+            avatar_url: u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.email || 'user')}`,
+            has_chosen_name: Boolean(u.displayName && u.displayName.trim()),
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('[Google OAuth Popup Warning]', err);
+        setErrorMessage(err.message || 'Google Sign-In failed. Please try again.');
+      })
+      .finally(() => {
+        setIsSigningInOAuth(false);
+      });
   };
 
   // 2. Handle Manual Local Login (Fallback when Firebase Auth is unconfigured)

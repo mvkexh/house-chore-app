@@ -141,13 +141,18 @@ export async function signInWithGoogle() {
     }
     return result;
   } catch (error) {
-    diagStore.log(`Step 1 Popup Error: [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
+    diagStore.log(`Step 1 Warning: Popup error [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
     diagStore.update({ lastErrorCode: error.code || 'POPUP_ERR', lastErrorMessage: error.message });
 
-    if (error.code === 'auth/popup-blocked') {
-      throw new Error('Google Sign-In Popup was blocked by your browser. Please allow popups for this site and click Continue with Google Account again.');
-    } else if (error.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-In window was closed before completing. Please click Continue with Google Account to try again.');
+    // Automatic fallback to signInWithRedirect when popup is blocked by browser or closed
+    if (
+      error.code === 'auth/popup-blocked' ||
+      error.code === 'auth/popup-closed-by-user' ||
+      error.message?.includes('popup-blocked')
+    ) {
+      diagStore.log('Step 1 Fallback: Popup blocked/closed. Initiating signInWithRedirect...', 'info');
+      await signInWithRedirect(auth, provider);
+      return null;
     }
 
     throw new Error(`Google Sign-In Error: [${error.code || 'POPUP_ERR'}] ${error.message}`);
