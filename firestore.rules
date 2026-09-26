@@ -13,12 +13,18 @@ service cloud.firestore {
     function isHouseMember(houseId) {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/houseMembers/$(houseId + "_" + request.auth.uid)) &&
-        get(/databases/$(database)/documents/houseMembers/$(houseId + "_" + request.auth.uid)).data.isActive == true;
+        get(/databases/$(database)/documents/houseMembers/$(houseId + "_" + request.auth.uid)).data.isActive != false;
     }
 
     function isHouseAdmin(houseId) {
       return isHouseMember(houseId) &&
         get(/databases/$(database)/documents/houseMembers/$(houseId + "_" + request.auth.uid)).data.role == 'ADMIN';
+    }
+
+    function isHouseCreator(houseId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/houses/$(houseId)) &&
+        get(/databases/$(database)/documents/houses/$(houseId)).data.createdBy == request.auth.uid;
     }
 
     // Users Collection
@@ -31,38 +37,38 @@ service cloud.firestore {
     match /houses/{houseId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
-      allow update, delete: if isHouseAdmin(houseId);
+      allow update, delete: if isHouseAdmin(houseId) || isHouseCreator(houseId);
     }
 
     // House Members Collection
     match /houseMembers/{memberId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
-      allow delete: if isHouseAdmin(resource.data.houseId);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isHouseAdmin(resource.data.houseId) || isHouseCreator(resource.data.houseId));
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isHouseAdmin(resource.data.houseId) || isHouseCreator(resource.data.houseId));
     }
 
     // House Scoped Collections
     match /chores/{docId} {
-      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+      allow read, write: if (resource != null && isHouseMember(resource.data.houseId)) || (request.resource != null && isHouseMember(request.resource.data.houseId));
     }
     match /assignments/{docId} {
-      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+      allow read, write: if (resource != null && isHouseMember(resource.data.houseId)) || (request.resource != null && isHouseMember(request.resource.data.houseId));
     }
     match /completionEvents/{docId} {
-      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+      allow read, write: if (resource != null && isHouseMember(resource.data.houseId)) || (request.resource != null && isHouseMember(request.resource.data.houseId));
     }
     match /attentionRequests/{docId} {
-      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+      allow read, write: if (resource != null && isHouseMember(resource.data.houseId)) || (request.resource != null && isHouseMember(request.resource.data.houseId));
     }
     match /absences/{docId} {
-      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+      allow read, write: if (resource != null && isHouseMember(resource.data.houseId)) || (request.resource != null && isHouseMember(request.resource.data.houseId));
     }
     match /houseHolidays/{docId} {
-      allow read, write: if isHouseMember(resource.data.houseId) || isHouseMember(request.resource.data.houseId);
+      allow read, write: if (resource != null && isHouseMember(resource.data.houseId)) || (request.resource != null && isHouseMember(request.resource.data.houseId));
     }
     match /notifications/{docId} {
-      allow read, update: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated();
     }
   }
