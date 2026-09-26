@@ -221,7 +221,7 @@ export default function Home() {
   }, [activeHouseId]);
 
   const firebaseUser = auth?.currentUser;
-  const effectiveUserId = firebaseUser?.uid || currentUser?.id;
+  const effectiveUserId = currentUser ? (firebaseUser?.uid || currentUser.id) : null;
   const userHouses = effectiveUserId ? store.getUserHouses(effectiveUserId) : [];
   let activeHouse = userHouses.find((h) => h.id === activeHouseId);
 
@@ -242,14 +242,12 @@ export default function Home() {
     );
   }
 
-  // 1. Not Logged In OR No Active House -> Show Onboarding Screen
-  const effectiveUserObj = currentUser || (firebaseUser ? { id: firebaseUser.uid, email: firebaseUser.email, full_name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User', has_chosen_name: true } : null);
-
-  if (!effectiveUserObj || !activeHouse) {
+  // 1. Not Logged In OR No Active House -> Show Onboarding Screen (Google Login screen when currentUser is null)
+  if (!currentUser || !activeHouse) {
     return (
       <main className="min-h-screen bg-slate-50 dark:bg-[#090d16] transition-colors">
         <Onboarding
-          currentUser={effectiveUserObj}
+          currentUser={currentUser}
           onComplete={(houseId) => {
             setActiveHouseId(houseId);
             setActiveTab('dashboard');
@@ -262,7 +260,7 @@ export default function Home() {
   // Active House Data
   const members = store.getHouseMembers(activeHouse.id);
   const chores = store.getHouseChores(activeHouse.id);
-  const notifications = store.getUserNotifications(currentUser.id);
+  const notifications = currentUser ? store.getUserNotifications(currentUser.id) : [];
   const unreadNotifCount = notifications.filter((n) => !n.is_read).length;
 
   const handleModalCreateHouse = async (e) => {

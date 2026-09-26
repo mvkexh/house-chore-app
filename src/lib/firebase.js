@@ -229,11 +229,14 @@ export async function handleAuthRedirectResult() {
 export async function signOutUser() {
   diagStore.log('Step Logout: User initiated logout', 'info');
   try {
-    await firebaseSignOut(auth);
+    if (auth) {
+      await firebaseSignOut(auth);
+    }
     diagStore.log('Step Logout SUCCESS: User signed out from Firebase Auth', 'success');
     diagStore.update({ firebaseUser: null, uid: 'NONE' });
   } catch (err) {
-    diagStore.log(`Step Logout Warning: [${err.code}] ${err.message}`, 'error');
+    console.error('[Firebase signOutUser error]', err);
+    diagStore.log(`Step Logout Warning: [${err.code || 'UNKNOWN'}] ${err.message}`, 'error');
   }
 }
 

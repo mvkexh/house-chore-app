@@ -371,11 +371,18 @@ class Store {
     this.notify();
   }
 
-  logout() {
-    localStorage.removeItem(CURRENT_USER_KEY);
-    localStorage.removeItem(ACTIVE_HOUSE_KEY);
-    signOutUser();
-    this.notify();
+  async logout() {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(CURRENT_USER_KEY);
+        localStorage.removeItem(ACTIVE_HOUSE_KEY);
+      }
+      await signOutUser();
+    } catch (e) {
+      console.error('[Storage logout exception]', e);
+    } finally {
+      this.notify();
+    }
   }
 
   clearCurrentUserIfUnauthenticated() {

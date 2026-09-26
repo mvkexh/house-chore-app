@@ -119,6 +119,15 @@ export default function ProfileModal({ currentUser, activeHouse, onClose, onShow
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      onClose();
+      await store.logout();
+    } catch (err) {
+      console.error('[ProfileModal Logout Error]', err);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
       <div className="bg-white dark:bg-gray-800 rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[92vh] sm:max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 dark:border-gray-700 overflow-hidden min-w-0">
@@ -348,10 +357,7 @@ export default function ProfileModal({ currentUser, activeHouse, onClose, onShow
               <div className="pt-4 border-t border-slate-200 dark:border-gray-700">
                 <button
                   type="button"
-                  onClick={() => {
-                    onClose();
-                    store.logout();
-                  }}
+                  onClick={handleLogout}
                   className="w-full py-3 px-4 rounded-xl border border-rose-200 dark:border-rose-900/80 bg-rose-50/50 dark:bg-rose-950/30 hover:bg-rose-100/60 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-extrabold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 >
                   <LogOut className="w-4 h-4 shrink-0" />
@@ -403,7 +409,7 @@ export default function ProfileModal({ currentUser, activeHouse, onClose, onShow
 
           <button
             type="button"
-            onClick={() => store.logout()}
+            onClick={handleLogout}
             className="p-2.5 rounded-xl border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 font-bold text-xs transition flex items-center justify-center shrink-0"
             title="Sign Out"
             aria-label="Sign Out"
