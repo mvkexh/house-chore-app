@@ -211,65 +211,18 @@ export async function signInWithGoogle() {
     }
     return result;
   } catch (error) {
-    diagStore.log(`signInWithPopup Warning: [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
-    diagStore.update({ lastErrorCode: error.code || 'POPUP_ERR', lastErrorMessage: error.message });
-
-    if (
-      error.code === 'auth/popup-blocked' ||
-      error.code === 'auth/popup-closed-by-user' ||
-      error.message?.includes('popup-blocked')
-    ) {
-      diagStore.log('Step 1 Fallback: Popup blocked/closed. Initiating signInWithRedirect...', 'info');
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('firebase_redirect_initiated', 'true');
-      }
-      await signInWithRedirect(auth, provider);
-      return null;
-    }
-
+    diagStore.log(`signInWithPopup ERROR: [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
+    diagStore.update({
+      lastErrorCode: error.code || 'POPUP_ERR',
+      lastErrorMessage: error.message,
+    });
+    // STOP immediately. Do NOT initiate signInWithRedirect or reload the page!
     throw new Error(`Google Sign-In Error: [${error.code || 'POPUP_ERR'}] ${error.message}`);
   }
 }
 
 export async function handleAuthRedirectResult() {
-  if (typeof window === 'undefined') return null;
-
-  const redirectInitiated = sessionStorage.getItem('firebase_redirect_initiated') === 'true';
-  if (!redirectInitiated) {
-    diagStore.log('getRedirectResult() skipped (No pending redirect flow initiated)', 'info');
-    diagStore.update({ redirectResult: 'skipped' });
-    return null;
-  }
-
-  diagStore.log('getRedirectResult() START...', 'info');
-  try {
-    const result = await getRedirectResult(auth);
-    sessionStorage.removeItem('firebase_redirect_initiated');
-
-    if (result && result.user) {
-      diagStore.log(`getRedirectResult() SUCCESS: user ${result.user.email} (UserCredential UID = ${result.user.uid})`, 'success');
-      diagStore.log(`auth.currentUser UID = ${auth.currentUser ? auth.currentUser.uid : 'null'}`, 'success');
-      diagStore.update({
-        redirectResult: 'success',
-        firebaseUser: result.user.email,
-        uid: result.user.uid,
-        lastErrorCode: 'NONE',
-        lastErrorMessage: null,
-      });
-      return result.user;
-    } else {
-      diagStore.log('getRedirectResult() NULL: returned null (No redirect payload)', 'info');
-      diagStore.update({ redirectResult: 'null' });
-    }
-  } catch (error) {
-    sessionStorage.removeItem('firebase_redirect_initiated');
-    diagStore.log(`getRedirectResult() ERROR: failed [${error.code || 'REDIRECT_ERR'}] ${error.message}`, 'error');
-    diagStore.update({
-      redirectResult: 'error',
-      lastErrorCode: error.code || 'REDIRECT_ERR',
-      lastErrorMessage: error.message,
-    });
-  }
+  // Pure popup flow: getRedirectResult is not involved
   return null;
 }
 
