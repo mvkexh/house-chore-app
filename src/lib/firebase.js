@@ -118,7 +118,7 @@ export async function signInWithGoogle() {
   diagStore.log('Step 1: signInWithGoogle button clicked', 'info');
 
   if (!isFirebaseConfigured()) {
-    const errStr = 'Firebase Auth Configuration Error: Invalid or missing API Key.';
+    const errStr = 'Firebase Auth Configuration Error: Invalid or missing credentials.';
     diagStore.log(`Step 1 ERROR: ${errStr}`, 'error');
     diagStore.update({ lastErrorCode: 'MISSING_CONFIG', lastErrorMessage: errStr });
     throw new Error(errStr);
@@ -128,7 +128,7 @@ export async function signInWithGoogle() {
   provider.setCustomParameters({ prompt: 'select_account' });
 
   try {
-    diagStore.log('Step 1: Invoking signInWithPopup...', 'info');
+    diagStore.log('Step 1: Invoking signInWithPopup (Popup Flow)...', 'info');
     const result = await signInWithPopup(auth, provider);
     if (result && result.user) {
       diagStore.log(`Step 1 SUCCESS: Popup signed in as ${result.user.email} (UID: ${result.user.uid})`, 'success');
@@ -141,21 +141,16 @@ export async function signInWithGoogle() {
     }
     return result;
   } catch (error) {
-    diagStore.log(`Step 1 Warning: Popup sign-in error [${error.code}] ${error.message}`, 'error');
+    diagStore.log(`Step 1 Popup Error: [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
     diagStore.update({ lastErrorCode: error.code || 'POPUP_ERR', lastErrorMessage: error.message });
-    
-    // Automatically trigger signInWithRedirect fallback when popup is blocked by browser or closed
-    if (
-      error.code === 'auth/popup-blocked' ||
-      error.code === 'auth/popup-closed-by-user' ||
-      error.message?.includes('popup-blocked')
-    ) {
-      diagStore.log('Step 1 Fallback: Popup blocked/closed. Calling signInWithRedirect...', 'info');
-      await signInWithRedirect(auth, provider);
-      return null;
+
+    if (error.code === 'auth/popup-blocked') {
+      throw new Error('Google Sign-In Popup was blocked by your browser. Please allow popups for this site and click Continue with Google Account again.');
+    } else if (error.code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-In window was closed before completing. Please click Continue with Google Account to try again.');
     }
-    
-    throw new Error(`Google Sign-In Error: [${error.code}] ${error.message}`);
+
+    throw new Error(`Google Sign-In Error: [${error.code || 'POPUP_ERR'}] ${error.message}`);
   }
 }
 
