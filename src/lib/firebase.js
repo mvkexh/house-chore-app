@@ -815,7 +815,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   const attnQuery = query(collection(db, 'attentionRequests'), where('houseId', '==', houseId));
 
   const currentData = {
-    house: null,
+    house: { id: houseId },
     members: [],
     chores: [],
     assignments: [],
@@ -824,9 +824,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   };
 
   const emit = () => {
-    if (currentData.house) {
-      callback({ ...currentData });
-    }
+    callback({ ...currentData, houseId });
   };
 
   const unsubHouse = onSnapshot(
@@ -837,9 +835,9 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
         currentData.house = {
           id: d.id || docSnap.id,
           name: d.name,
-          invite_code: d.inviteCode,
-          created_by: d.createdBy,
-          created_at: d.createdAt,
+          invite_code: d.inviteCode || d.invite_code,
+          created_by: d.createdBy || d.created_by,
+          created_at: d.createdAt || d.created_at,
         };
         emit();
       }
@@ -854,12 +852,12 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
         const data = d.data();
         return {
           id: data.id || d.id,
-          house_id: data.houseId,
-          user_id: data.userId,
-          display_name: data.displayName,
+          house_id: data.houseId || data.house_id || houseId,
+          user_id: data.userId || data.user_id,
+          display_name: data.displayName || data.display_name,
           role: data.role,
-          is_active: data.isActive !== false,
-          joined_at: data.joinedAt,
+          is_active: data.isActive !== false && data.is_active !== false,
+          joined_at: data.joinedAt || data.joined_at,
         };
       });
       emit();
@@ -870,7 +868,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   const unsubChores = onSnapshot(
     choresQuery,
     (snap) => {
-      currentData.chores = snap.docs.map((d) => d.data());
+      currentData.chores = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       emit();
     },
     (err) => console.warn('[Realtime Chores Error]', err.message)
@@ -879,7 +877,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   const unsubAssignments = onSnapshot(
     assignmentsQuery,
     (snap) => {
-      currentData.assignments = snap.docs.map((d) => d.data());
+      currentData.assignments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       emit();
     },
     (err) => console.warn('[Realtime Assignments Error]', err.message)
@@ -888,7 +886,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   const unsubCompletions = onSnapshot(
     completionsQuery,
     (snap) => {
-      currentData.completions = snap.docs.map((d) => d.data());
+      currentData.completions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       emit();
     },
     (err) => console.warn('[Realtime Completions Error]', err.message)
@@ -897,7 +895,7 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
   const unsubAttn = onSnapshot(
     attnQuery,
     (snap) => {
-      currentData.attentionRequests = snap.docs.map((d) => d.data());
+      currentData.attentionRequests = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       emit();
     },
     (err) => console.warn('[Realtime Attention Error]', err.message)

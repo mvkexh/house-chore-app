@@ -1775,13 +1775,19 @@ class Store {
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }
 
-  markNotificationRead(notificationId) {
+  async markNotificationRead(notificationId) {
+    if (!notificationId) return;
     const db = this.getRawData();
     const notif = db.notifications.find((n) => n.id === notificationId);
     if (notif) {
       notif.is_read = true;
+      notif.isRead = true;
       this.saveRawData(db);
     }
+    if (isFirebaseConfigured()) {
+      await dbMarkNotificationRead(notificationId);
+    }
+    this.notify();
   }
 }
 
