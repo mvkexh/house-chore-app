@@ -3,7 +3,26 @@
  */
 import { ROLES, RESPONSIBILITY_STATUS, ASSIGNMENT_SOURCE, CHORE_TYPES, CHORE_FREQUENCIES } from './types';
 import { generateWeeklySchedule, isDateInRange } from './scheduler';
-import { dbCreateHouse, dbCreateMember, dbCreateHouseAtomic, dbFetchHouseByCode, dbFetchHouseData, dbFetchUserHouses, dbUpsertUserProfile, dbDeleteHouse, dbUpdateMemberDisplayName, signOutUser, isFirebaseConfigured } from './firebase';
+import {
+  dbCreateHouse,
+  dbCreateMember,
+  dbCreateHouseAtomic,
+  dbFetchHouseByCode,
+  dbFetchHouseData,
+  dbFetchUserHouses,
+  dbUpsertUserProfile,
+  dbDeleteHouse,
+  dbUpdateMemberDisplayName,
+  dbSaveChore,
+  dbDeleteChore,
+  dbSaveAssignments,
+  dbSaveCompletionEvent,
+  dbSaveAttentionRequest,
+  dbSaveNotification,
+  dbMarkNotificationRead,
+  signOutUser,
+  isFirebaseConfigured,
+} from './firebase';
 
 const STORAGE_KEY = 'roommate_chore_manager_db_v4';
 const CURRENT_USER_KEY = 'roommate_chore_manager_user';
@@ -367,6 +386,14 @@ class Store {
       ];
     }
 
+    this.saveRawData(raw);
+    this.notify();
+  }
+
+  updateRealtimeNotificationsData(notifications) {
+    if (!Array.isArray(notifications)) return;
+    const raw = this.getRawData();
+    raw.notifications = notifications;
     this.saveRawData(raw);
     this.notify();
   }
@@ -947,7 +974,7 @@ class Store {
     return db.chores.filter((c) => c.house_id === houseId);
   }
 
-  createChore(houseId, choreData, createdByUserId) {
+  async createChore(houseId, choreData, createdByUserId) {
     const db = this.getRawData();
 
     // Map sub_items array of strings or objects to structured sub_items array
@@ -962,18 +989,26 @@ class Store {
     const newChore = {
       id: 'chore_' + Math.random().toString(36).substring(2, 9),
       house_id: houseId,
+      houseId: houseId,
       title: choreData.title.trim(),
       description: choreData.description || '',
       created_by: createdByUserId,
+      createdBy: createdByUserId,
       chore_type: choreData.chore_type || CHORE_TYPES.REPEAT_ON_DEMAND,
+      choreType: choreData.chore_type || CHORE_TYPES.REPEAT_ON_DEMAND,
       frequency: choreData.frequency || CHORE_FREQUENCIES.WEEKLY,
       required_people_count: parseInt(choreData.required_people_count) || 1,
+      requiredPeopleCount: parseInt(choreData.required_people_count) || 1,
       schedule_day: choreData.schedule_day || 'Monday',
+      scheduleDay: choreData.schedule_day || 'Monday',
       schedule_time: choreData.schedule_time || '19:00',
+      scheduleTime: choreData.schedule_time || '19:00',
       start_date: choreData.start_date || new Date().toISOString().split('T')[0],
+      startDate: choreData.start_date || new Date().toISOString().split('T')[0],
       end_date: choreData.end_date || null,
       notes: choreData.notes || '',
       sub_items: formattedSubItems,
+      subItems: formattedSubItems,
       daily_reminder_enabled: !!choreData.daily_reminder_enabled,
       daily_reminder_time: choreData.daily_reminder_time || '19:00',
       assignment_preference_type: choreData.assignment_preference_type || ASSIGNMENT_PREFERENCES.AUTOMATIC,
@@ -981,16 +1016,57 @@ class Store {
       preferred_user_ids: Array.isArray(choreData.preferred_user_ids) ? choreData.preferred_user_ids : [],
       avoid_user_ids: Array.isArray(choreData.avoid_user_ids) ? choreData.avoid_user_ids : [],
       is_active: true,
+      isActive: true,
       created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     };
 
     db.chores.push(newChore);
     this.saveRawData(db);
-    this.regenerateCurrentSchedule(houseId);
+
+    if (isFirebaseConfigured()) {
+      await dbSaveChore(newChore);
+    }
+
+    const generatedAssignments = this.regenerateCurrentSchedule(houseId);
+
+    if (isFirebaseConfigured() && Array.isArray(generatedAssignments) && generatedAssignments.length > 0) {
+      await dbSaveAssignments(generatedAssignments);
+    }
+
+    if (isFirebaseConfigured()) {
+      const houseMembers = this.getHouseMembers(houseId);
+      const activeMembers = houseMembers.filter((m) => m.is_active !== false && m.isActive !== false);
+
+      for (const m of activeMembers) {
+        const targetUid = m.user_id || m.userId;
+        if (targetUid && targetUid !== createdByUserId) {
+          const notif = {
+            id: 'notif_' + Math.random().toString(36).substring(2, 9),
+            user_id: targetUid,
+            userId: targetUid,
+            house_id: houseId,
+            houseId: houseId,
+            type: 'NEW_CHORE',
+            title: 'New Chore Created',
+            message: `A new chore "${newChore.title}" was added to your house schedule.`,
+            is_read: false,
+            isRead: false,
+            created_at: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          };
+          db.notifications.push(notif);
+          await dbSaveNotification(notif);
+        }
+      }
+      this.saveRawData(db);
+    }
+
+    this.notify();
     return newChore;
   }
 
-  updateChore(choreId, choreData) {
+  async updateChore(choreId, choreData) {
     const db = this.getRawData();
     const chore = db.chores.find((c) => c.id === choreId);
     if (!chore) throw new Error('Chore not found.');
@@ -1026,18 +1102,40 @@ class Store {
     if (choreData.avoid_user_ids !== undefined) chore.avoid_user_ids = Array.isArray(choreData.avoid_user_ids) ? choreData.avoid_user_ids : [];
 
     this.saveRawData(db);
-    this.regenerateCurrentSchedule(chore.house_id);
+
+    if (isFirebaseConfigured()) {
+      await dbSaveChore(chore);
+    }
+
+    const newAssignments = this.regenerateCurrentSchedule(chore.house_id);
+
+    if (isFirebaseConfigured() && Array.isArray(newAssignments) && newAssignments.length > 0) {
+      await dbSaveAssignments(newAssignments);
+    }
+
+    this.notify();
     return chore;
   }
 
-  deleteChore(choreId) {
+  async deleteChore(choreId) {
     const db = this.getRawData();
     const chore = db.chores.find((c) => c.id === choreId);
     const houseId = chore ? chore.house_id : null;
     db.chores = db.chores.filter((c) => c.id !== choreId);
     db.assignments = db.assignments.filter((a) => a.chore_id !== choreId);
     this.saveRawData(db);
-    if (houseId) this.regenerateCurrentSchedule(houseId);
+
+    if (isFirebaseConfigured()) {
+      await dbDeleteChore(choreId);
+    }
+
+    if (houseId) {
+      const newAssignments = this.regenerateCurrentSchedule(houseId);
+      if (isFirebaseConfigured() && Array.isArray(newAssignments) && newAssignments.length > 0) {
+        await dbSaveAssignments(newAssignments);
+      }
+    }
+    this.notify();
   }
 
   // --- SCHEDULE & MULTIPLE COMPLETIONS ENGINE ---
@@ -1115,13 +1213,13 @@ class Store {
     return generatedAssignments;
   }
 
-  markAssignmentCompleted(assignmentId, userId, completionType = 'TOGETHER', participantIds = null, subItemInput = null) {
+  async markAssignmentCompleted(assignmentId, userId, completionType = 'TOGETHER', participantIds = null, subItemInput = null) {
     const db = this.getRawData();
     const assignment = db.assignments.find((a) => a.id === assignmentId);
     if (!assignment) return;
 
     // Strict Permission Enforcement: User must be in actual_member_ids OR house Admin
-    const member = db.house_members.find((hm) => hm.house_id === assignment.house_id && hm.user_id === userId);
+    const member = db.house_members.find((hm) => hm.house_id === assignment.house_id && (hm.user_id === userId || hm.userId === userId));
     const house = db.houses.find((h) => h.id === assignment.house_id);
     const isAssigned = (assignment.actual_member_ids || []).includes(userId);
     const isAdmin = house?.created_by === userId || member?.role === ROLES.ADMIN || member?.role === 'ADMIN';
@@ -1185,7 +1283,7 @@ class Store {
     }
 
     const participantNames = participants.map((uid) => {
-      const m = db.house_members.find((hm) => hm.house_id === assignment.house_id && hm.user_id === uid);
+      const m = db.house_members.find((hm) => hm.house_id === assignment.house_id && (hm.user_id === uid || hm.userId === uid));
       const u = db.users.find((usr) => usr.id === uid);
       return m ? m.display_name : u ? u.full_name : 'Roommate';
     });
@@ -1218,29 +1316,70 @@ class Store {
     });
 
     // Save completion event
-    db.completion_events.push({
+    const completionEvent = {
       id: 'comp_' + Math.random().toString(36).substring(2, 9),
       assignment_id: assignmentId,
+      assignmentId: assignmentId,
       house_id: assignment.house_id,
+      houseId: assignment.house_id,
       chore_id: assignment.chore_id,
+      choreId: assignment.chore_id,
       sub_item_id: targetSubItems.length === 1 ? targetSubItems[0].id : null,
       sub_item_ids: targetSubItems.map((s) => s.id),
       sub_item_name: combinedSubItemLabel,
       sub_item_names: subItemNamesList,
       completed_by_user_id: userId,
+      completedByUserId: userId,
       completed_by_name: completedByName,
+      completedByName: completedByName,
       completion_type: completionType, // 'ALONE' or 'TOGETHER'
+      completionType: completionType,
       participants: participants,
       participant_names: participantNames,
+      participantNames: participantNames,
       week_number: assignment.week_number,
       year: assignment.year,
       timestamp: new Date().toISOString(),
-    });
+    };
 
+    db.completion_events.push(completionEvent);
     this.saveRawData(db);
+
+    if (isFirebaseConfigured()) {
+      await dbSaveAssignments([assignment]);
+      await dbSaveCompletionEvent(completionEvent);
+
+      const houseMembers = this.getHouseMembers(assignment.house_id);
+      const activeMembers = houseMembers.filter((m) => m.is_active !== false && m.isActive !== false);
+
+      for (const m of activeMembers) {
+        const targetUid = m.user_id || m.userId;
+        if (targetUid && targetUid !== userId) {
+          const notif = {
+            id: 'notif_' + Math.random().toString(36).substring(2, 9),
+            user_id: targetUid,
+            userId: targetUid,
+            house_id: assignment.house_id,
+            houseId: assignment.house_id,
+            type: 'CHORE_COMPLETED',
+            title: 'Chore Completed',
+            message: `${userName} completed "${chore ? chore.title : 'a chore'}".`,
+            is_read: false,
+            isRead: false,
+            created_at: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          };
+          db.notifications.push(notif);
+          await dbSaveNotification(notif);
+        }
+      }
+      this.saveRawData(db);
+    }
+
+    this.notify();
   }
 
-  reportChoreNeedsAttention(assignmentId, reporterUserId, reason = 'Needs attention / Bin full', subItemInput = null) {
+  async reportChoreNeedsAttention(assignmentId, reporterUserId, reason = 'Needs attention / Bin full', subItemInput = null) {
     const db = this.getRawData();
     const assignment = db.assignments.find((a) => a.id === assignmentId);
     if (!assignment) return;
@@ -1248,7 +1387,7 @@ class Store {
     assignment.status = RESPONSIBILITY_STATUS.PENDING;
 
     const user = db.users.find((u) => u.id === reporterUserId);
-    const member = db.house_members.find((hm) => hm.user_id === reporterUserId);
+    const member = db.house_members.find((hm) => hm.user_id === reporterUserId || hm.userId === reporterUserId);
     const reporterName = member ? member.display_name : user ? user.full_name : 'Roommate';
 
     const chore = db.chores.find((c) => c.id === assignment.chore_id);
@@ -1272,54 +1411,75 @@ class Store {
       ? (subItems.length > 1 && subItemNamesList.length === subItems.length ? `all ${choreTitle} areas` : subItemNamesList.join(' + '))
       : null;
 
-    const existingReq = db.attention_requests.find(
+    let attentionReq = db.attention_requests.find(
       (ar) =>
         ar.assignment_id === assignmentId &&
         ar.is_resolved !== true &&
         (!combinedLabel || ar.sub_item_name === combinedLabel)
     );
 
-    if (existingReq) {
-      if (!existingReq.reporter_names.includes(reporterName)) {
-        existingReq.reporter_names.push(reporterName);
+    if (attentionReq) {
+      if (!attentionReq.reporter_names.includes(reporterName)) {
+        attentionReq.reporter_names.push(reporterName);
       }
     } else {
-      db.attention_requests.push({
+      attentionReq = {
         id: 'att_' + Math.random().toString(36).substring(2, 9),
         assignment_id: assignmentId,
+        assignmentId: assignmentId,
         house_id: assignment.house_id,
+        houseId: assignment.house_id,
         chore_id: assignment.chore_id,
+        choreId: assignment.chore_id,
         sub_item_id: targetSubItems.length === 1 ? targetSubItems[0].id : null,
         sub_item_ids: targetSubItems.map((s) => s.id),
         sub_item_name: combinedLabel,
         reported_by_user_id: reporterUserId,
+        reportedByUserId: reporterUserId,
+        reported_by_name: reporterName,
+        reportedByName: reporterName,
         reporter_names: [reporterName],
         week_number: assignment.week_number,
         year: assignment.year,
         reason: combinedLabel ? `${combinedLabel} — ${reason}` : reason,
         is_resolved: false,
         timestamp: new Date().toISOString(),
-      });
+      };
+      db.attention_requests.push(attentionReq);
     }
 
-    const notifTitle = combinedLabel ? `${choreTitle} (${combinedLabel}) Needs Attention` : `${choreTitle} Needs Attention`;
-    const notifMsg = `${reporterName} reported that ${combinedLabel ? `"${combinedLabel}" in ` : ''}"${choreTitle}" needs attention.`;
+    this.saveRawData(db);
 
-    (assignment.actual_member_ids || []).forEach((workerId) => {
-      if (workerId !== reporterUserId) {
-        db.notifications.push({
+    if (isFirebaseConfigured()) {
+      await dbSaveAssignments([assignment]);
+      await dbSaveAttentionRequest(attentionReq);
+
+      const notifTitle = combinedLabel ? `${choreTitle} (${combinedLabel}) Needs Attention` : `${choreTitle} Needs Attention`;
+      const notifMsg = `${reporterName} reported that ${combinedLabel ? `"${combinedLabel}" in ` : ''}"${choreTitle}" needs attention.`;
+
+      const targetWorkers = (assignment.actual_member_ids || []).filter((wId) => wId !== reporterUserId);
+      for (const workerId of targetWorkers) {
+        const notif = {
           id: 'notif_' + Math.random().toString(36).substring(2, 9),
           user_id: workerId,
+          userId: workerId,
           house_id: assignment.house_id,
+          houseId: assignment.house_id,
+          type: 'ATTENTION_REQUEST',
           title: notifTitle,
           message: notifMsg,
           is_read: false,
+          isRead: false,
           created_at: new Date().toISOString(),
-        });
+          createdAt: new Date().toISOString(),
+        };
+        db.notifications.push(notif);
+        await dbSaveNotification(notif);
       }
-    });
+      this.saveRawData(db);
+    }
 
-    this.saveRawData(db);
+    this.notify();
   }
 
   createSpecificDateReminder(houseId, choreId, subItemId, targetUserIds, remindDateStr, remindTimeStr, note, createdByUserId) {

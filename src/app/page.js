@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { store, syncHouseWithServer } from '../lib/storage';
-import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, auth, db, isFirebaseConfigured } from '../lib/firebase';
+import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, subscribeToUserNotifications, auth, db, isFirebaseConfigured } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -231,6 +231,19 @@ export default function Home() {
       store.setActiveHouseId(activeHouse.id);
     }
   }
+
+  // Live Realtime Firestore Listeners for user notifications
+  useEffect(() => {
+    if (!effectiveUserId) return;
+
+    const unsubscribeNotifications = subscribeToUserNotifications(effectiveUserId, (notifications) => {
+      store.updateRealtimeNotificationsData(notifications);
+    });
+
+    return () => {
+      unsubscribeNotifications();
+    };
+  }, [effectiveUserId]);
 
   // 0. Auth Initializing State -> Render Loading Spinner
   if (isAuthInitializing) {

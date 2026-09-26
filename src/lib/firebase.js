@@ -365,23 +365,247 @@ export async function dbCreateMember(memberObj) {
   if (!isFirebaseConfigured()) return memberObj;
 
   try {
-    const memberDocId = memberObj.id || `${memberObj.house_id}_${memberObj.user_id}`;
+    const houseId = memberObj.house_id || memberObj.houseId;
+    const userId = memberObj.user_id || memberObj.userId;
+    const memberDocId = `${houseId}_${userId}`;
     const memberRef = doc(db, 'houseMembers', memberDocId);
     const docData = {
       id: memberDocId,
-      houseId: memberObj.house_id || memberObj.houseId,
-      userId: memberObj.user_id || memberObj.userId,
+      houseId: houseId,
+      house_id: houseId,
+      userId: userId,
+      user_id: userId,
       displayName: memberObj.display_name || memberObj.displayName,
+      display_name: memberObj.display_name || memberObj.displayName,
       role: memberObj.role || 'MEMBER',
       isActive: memberObj.is_active !== undefined ? memberObj.is_active : true,
+      is_active: memberObj.is_active !== undefined ? memberObj.is_active : true,
       joinedAt: memberObj.joined_at || memberObj.joinedAt || new Date().toISOString(),
+      joined_at: memberObj.joined_at || memberObj.joinedAt || new Date().toISOString(),
     };
-    await setDoc(memberRef, docData);
+    await setDoc(memberRef, docData, { merge: true });
     return memberObj;
   } catch (err) {
     console.error('[Firestore Error] Create member error:', err.message);
     throw new Error(`Firestore error adding member: ${err.message}`);
   }
+}
+
+export async function dbSaveChore(choreObj) {
+  if (!choreObj || !choreObj.id || !isFirebaseConfigured()) return choreObj;
+  try {
+    const choreRef = doc(db, 'chores', choreObj.id);
+    const docData = {
+      id: choreObj.id,
+      houseId: choreObj.house_id || choreObj.houseId,
+      house_id: choreObj.house_id || choreObj.houseId,
+      title: choreObj.title,
+      description: choreObj.description || '',
+      createdBy: choreObj.created_by || choreObj.createdBy,
+      created_by: choreObj.created_by || choreObj.createdBy,
+      choreType: choreObj.chore_type || choreObj.choreType || 'REPEAT_ON_DEMAND',
+      chore_type: choreObj.chore_type || choreObj.choreType || 'REPEAT_ON_DEMAND',
+      frequency: choreObj.frequency || 'WEEKLY',
+      requiredPeopleCount: choreObj.required_people_count || choreObj.requiredPeopleCount || 1,
+      required_people_count: choreObj.required_people_count || choreObj.requiredPeopleCount || 1,
+      scheduleDay: choreObj.schedule_day || choreObj.scheduleDay || 'Monday',
+      schedule_day: choreObj.schedule_day || choreObj.scheduleDay || 'Monday',
+      scheduleTime: choreObj.schedule_time || choreObj.scheduleTime || '19:00',
+      schedule_time: choreObj.schedule_time || choreObj.scheduleTime || '19:00',
+      startDate: choreObj.start_date || choreObj.startDate || new Date().toISOString().split('T')[0],
+      start_date: choreObj.start_date || choreObj.startDate || new Date().toISOString().split('T')[0],
+      notes: choreObj.notes || '',
+      subItems: choreObj.sub_items || choreObj.subItems || [],
+      sub_items: choreObj.sub_items || choreObj.subItems || [],
+      dailyReminderEnabled: Boolean(choreObj.daily_reminder_enabled || choreObj.dailyReminderEnabled),
+      daily_reminder_enabled: Boolean(choreObj.daily_reminder_enabled || choreObj.dailyReminderEnabled),
+      dailyReminderTime: choreObj.daily_reminder_time || choreObj.dailyReminderTime || '19:00',
+      daily_reminder_time: choreObj.daily_reminder_time || choreObj.dailyReminderTime || '19:00',
+      assignmentPreferenceType: choreObj.assignment_preference_type || choreObj.assignmentPreferenceType || 'AUTOMATIC',
+      assignment_preference_type: choreObj.assignment_preference_type || choreObj.assignmentPreferenceType || 'AUTOMATIC',
+      preferredUserIds: choreObj.preferred_user_ids || choreObj.preferredUserIds || [],
+      preferred_user_ids: choreObj.preferred_user_ids || choreObj.preferredUserIds || [],
+      avoidUserIds: choreObj.avoid_user_ids || choreObj.avoidUserIds || [],
+      avoid_user_ids: choreObj.avoid_user_ids || choreObj.avoidUserIds || [],
+      isActive: choreObj.is_active !== undefined ? choreObj.is_active : true,
+      is_active: choreObj.is_active !== undefined ? choreObj.is_active : true,
+      createdAt: choreObj.created_at || choreObj.createdAt || new Date().toISOString(),
+      created_at: choreObj.created_at || choreObj.createdAt || new Date().toISOString(),
+    };
+    await setDoc(choreRef, docData, { merge: true });
+    return choreObj;
+  } catch (err) {
+    console.error('[Firestore Error] Save chore error:', err);
+    throw err;
+  }
+}
+
+export async function dbDeleteChore(choreId) {
+  if (!choreId || !isFirebaseConfigured()) return;
+  try {
+    await deleteDoc(doc(db, 'chores', choreId));
+  } catch (err) {
+    console.error('[Firestore Error] Delete chore error:', err);
+  }
+}
+
+export async function dbSaveAssignments(assignments) {
+  if (!Array.isArray(assignments) || assignments.length === 0 || !isFirebaseConfigured()) return;
+  try {
+    const batch = writeBatch(db);
+    assignments.forEach((a) => {
+      if (!a || !a.id) return;
+      const ref = doc(db, 'assignments', a.id);
+      const docData = {
+        id: a.id,
+        houseId: a.house_id || a.houseId,
+        house_id: a.house_id || a.houseId,
+        choreId: a.chore_id || a.choreId,
+        chore_id: a.chore_id || a.choreId,
+        scheduleId: a.schedule_id || a.scheduleId,
+        schedule_id: a.schedule_id || a.scheduleId,
+        actualMemberIds: a.actual_member_ids || a.actualMemberIds || [],
+        actual_member_ids: a.actual_member_ids || a.actualMemberIds || [],
+        assignedNames: a.assigned_names || a.assignedNames || [],
+        assigned_names: a.assigned_names || a.assignedNames || [],
+        status: a.status || 'PENDING',
+        dueDate: a.due_date || a.dueDate || '',
+        due_date: a.due_date || a.dueDate || '',
+        dueTime: a.due_time || a.dueTime || '',
+        due_time: a.due_time || a.dueTime || '',
+        completedAt: a.completed_at || a.completedAt || null,
+        completed_at: a.completed_at || a.completedAt || null,
+        completedBy: a.completed_by || a.completedBy || null,
+        completed_by: a.completed_by || a.completedBy || null,
+        source: a.source || 'AUTOMATIC',
+        createdAt: a.created_at || a.createdAt || new Date().toISOString(),
+        created_at: a.created_at || a.createdAt || new Date().toISOString(),
+      };
+      batch.set(ref, docData, { merge: true });
+    });
+    await batch.commit();
+  } catch (err) {
+    console.error('[Firestore Error] Save assignments error:', err);
+  }
+}
+
+export async function dbSaveCompletionEvent(completionObj) {
+  if (!completionObj || !completionObj.id || !isFirebaseConfigured()) return completionObj;
+  try {
+    const ref = doc(db, 'completionEvents', completionObj.id);
+    const docData = {
+      id: completionObj.id,
+      houseId: completionObj.house_id || completionObj.houseId,
+      house_id: completionObj.house_id || completionObj.houseId,
+      choreId: completionObj.chore_id || completionObj.choreId,
+      chore_id: completionObj.chore_id || completionObj.choreId,
+      assignmentId: completionObj.assignment_id || completionObj.assignmentId,
+      assignment_id: completionObj.assignment_id || completionObj.assignmentId,
+      completedByUserId: completionObj.completed_by_user_id || completionObj.completedByUserId,
+      completed_by_user_id: completionObj.completed_by_user_id || completionObj.completedByUserId,
+      completedByName: completionObj.completed_by_name || completionObj.completedByName,
+      completed_by_name: completionObj.completed_by_name || completionObj.completedByName,
+      completionType: completionObj.completion_type || completionObj.completionType || 'ALONE',
+      completion_type: completionObj.completion_type || completionObj.completionType || 'ALONE',
+      participants: completionObj.participants || [],
+      participantNames: completionObj.participant_names || completionObj.participantNames || [],
+      participant_names: completionObj.participant_names || completionObj.participantNames || [],
+      timestamp: completionObj.timestamp || new Date().toISOString(),
+    };
+    await setDoc(ref, docData, { merge: true });
+    return completionObj;
+  } catch (err) {
+    console.error('[Firestore Error] Save completion event error:', err);
+  }
+}
+
+export async function dbSaveAttentionRequest(attnObj) {
+  if (!attnObj || !attnObj.id || !isFirebaseConfigured()) return attnObj;
+  try {
+    const ref = doc(db, 'attentionRequests', attnObj.id);
+    const docData = {
+      id: attnObj.id,
+      houseId: attnObj.house_id || attnObj.houseId,
+      house_id: attnObj.house_id || attnObj.houseId,
+      choreId: attnObj.chore_id || attnObj.choreId,
+      chore_id: attnObj.chore_id || attnObj.choreId,
+      reportedByUserId: attnObj.reported_by_user_id || attnObj.reportedByUserId,
+      reported_by_user_id: attnObj.reported_by_user_id || attnObj.reportedByUserId,
+      reportedByName: attnObj.reported_by_name || attnObj.reportedByName,
+      reported_by_name: attnObj.reported_by_name || attnObj.reportedByName,
+      reason: attnObj.reason || '',
+      note: attnObj.note || '',
+      status: attnObj.status || 'OPEN',
+      timestamp: attnObj.timestamp || new Date().toISOString(),
+    };
+    await setDoc(ref, docData, { merge: true });
+    return attnObj;
+  } catch (err) {
+    console.error('[Firestore Error] Save attention request error:', err);
+  }
+}
+
+export async function dbSaveNotification(notifObj) {
+  if (!notifObj || !notifObj.id || !isFirebaseConfigured()) return notifObj;
+  try {
+    const ref = doc(db, 'notifications', notifObj.id);
+    const docData = {
+      id: notifObj.id,
+      userId: notifObj.user_id || notifObj.userId,
+      user_id: notifObj.user_id || notifObj.userId,
+      houseId: notifObj.house_id || notifObj.houseId,
+      house_id: notifObj.house_id || notifObj.houseId,
+      type: notifObj.type || 'GENERAL',
+      title: notifObj.title || 'Notification',
+      message: notifObj.message || '',
+      isRead: Boolean(notifObj.is_read || notifObj.isRead),
+      is_read: Boolean(notifObj.is_read || notifObj.isRead),
+      createdAt: notifObj.created_at || notifObj.createdAt || new Date().toISOString(),
+      created_at: notifObj.created_at || notifObj.createdAt || new Date().toISOString(),
+    };
+    await setDoc(ref, docData, { merge: true });
+    return notifObj;
+  } catch (err) {
+    console.error('[Firestore Error] Save notification error:', err);
+  }
+}
+
+export async function dbMarkNotificationRead(notificationId) {
+  if (!notificationId || !isFirebaseConfigured()) return;
+  try {
+    const ref = doc(db, 'notifications', notificationId);
+    await updateDoc(ref, { isRead: true, is_read: true });
+  } catch (err) {
+    console.error('[Firestore Error] Mark notification read error:', err);
+  }
+}
+
+export function subscribeToUserNotifications(userId, callback) {
+  if (!userId || !isFirebaseConfigured()) return () => {};
+  
+  let notifQuery = query(collection(db, 'notifications'), where('userId', '==', userId));
+  
+  return onSnapshot(
+    notifQuery,
+    (snap) => {
+      const notifications = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: data.id || d.id,
+          user_id: data.userId || data.user_id,
+          house_id: data.houseId || data.house_id,
+          type: data.type,
+          title: data.title,
+          message: data.message,
+          is_read: data.isRead !== undefined ? data.isRead : Boolean(data.is_read),
+          created_at: data.createdAt || data.created_at,
+        };
+      }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      
+      callback(notifications);
+    },
+    (err) => console.warn('[Realtime Notifications Error]', err.message)
+  );
 }
 
 export async function dbFetchHouseByCode(code) {
