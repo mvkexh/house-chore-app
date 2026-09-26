@@ -3,7 +3,7 @@
  */
 import { ROLES, RESPONSIBILITY_STATUS, ASSIGNMENT_SOURCE, CHORE_TYPES, CHORE_FREQUENCIES } from './types';
 import { generateWeeklySchedule, isDateInRange } from './scheduler';
-import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbUpsertUserProfile, dbDeleteHouse, dbUpdateMemberDisplayName, signOutUser, isFirebaseConfigured } from './firebase';
+import { dbCreateHouse, dbCreateMember, dbFetchHouseByCode, dbFetchHouseData, dbFetchUserHouses, dbUpsertUserProfile, dbDeleteHouse, dbUpdateMemberDisplayName, signOutUser, isFirebaseConfigured } from './firebase';
 
 const STORAGE_KEY = 'roommate_chore_manager_db_v4';
 const CURRENT_USER_KEY = 'roommate_chore_manager_user';
@@ -201,30 +201,37 @@ class Store {
     const db = this.getRawData();
     let existingUser = db.users.find((u) => u.email === googleProfile.email || u.id === googleProfile.id);
 
+    const hasChosenName =
+      googleProfile.has_chosen_name !== undefined
+        ? googleProfile.has_chosen_name
+        : Boolean(googleProfile.full_name && googleProfile.full_name.trim());
+
     if (!existingUser) {
       existingUser = {
         id: googleProfile.id || 'usr_' + Math.random().toString(36).substring(2, 9),
         email: googleProfile.email || 'user@example.com',
         full_name: googleProfile.full_name || '',
         avatar_url: googleProfile.avatar_url || '',
-        has_chosen_name: Boolean(googleProfile.has_chosen_name),
+        has_chosen_name: hasChosenName,
         created_at: new Date().toISOString(),
       };
       db.users.push(existingUser);
     } else {
-      if (googleProfile.full_name && !existingUser.has_chosen_name) {
+      if (googleProfile.full_name) {
         existingUser.full_name = googleProfile.full_name;
       }
       if (googleProfile.avatar_url) existingUser.avatar_url = googleProfile.avatar_url;
       if (googleProfile.has_chosen_name !== undefined) {
         existingUser.has_chosen_name = googleProfile.has_chosen_name;
+      } else if (!existingUser.has_chosen_name && existingUser.full_name) {
+        existingUser.has_chosen_name = true;
       }
     }
     this.saveRawData(db);
 
     localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(existingUser));
 
-    // Sync profile to Supabase & Server API
+    // Sync profile to Cloud Firestore
     dbUpsertUserProfile(existingUser);
     if (typeof fetch !== 'undefined') {
       fetch('/api/sync', {
@@ -234,8 +241,69 @@ class Store {
       }).catch(() => {});
     }
 
+    // Sync user houses from Cloud Firestore
+    this.syncUserHousesFromFirestore(existingUser.id);
+
     this.notify();
     return existingUser;
+  }
+
+  async syncUserHousesFromFirestore(userId) {
+    if (!userId || !isFirebaseConfigured()) return;
+    try {
+      const housesData = await dbFetchUserHouses(userId);
+      if (housesData && housesData.length > 0) {
+        const raw = this.getRawData();
+        housesData.forEach((hData) => {
+          if (!hData || !hData.house) return;
+
+          // Merge house
+          const hIdx = raw.houses.findIndex((h) => h.id === hData.house.id);
+          if (hIdx >= 0) raw.houses[hIdx] = hData.house;
+          else raw.houses.push(hData.house);
+
+          // Merge members
+          if (Array.isArray(hData.members)) {
+            hData.members.forEach((m) => {
+              const mIdx = raw.house_members.findIndex((x) => x.id === m.id);
+              if (mIdx >= 0) raw.house_members[mIdx] = m;
+              else raw.house_members.push(m);
+            });
+          }
+
+          // Merge chores
+          if (Array.isArray(hData.chores)) {
+            hData.chores.forEach((c) => {
+              const cIdx = raw.chores.findIndex((x) => x.id === c.id);
+              if (cIdx >= 0) raw.chores[cIdx] = c;
+              else raw.chores.push(c);
+            });
+          }
+
+          // Merge assignments
+          if (Array.isArray(hData.assignments)) {
+            hData.assignments.forEach((a) => {
+              const aIdx = raw.assignments.findIndex((x) => x.id === a.id);
+              if (aIdx >= 0) raw.assignments[aIdx] = a;
+              else raw.assignments.push(a);
+            });
+          }
+        });
+
+        this.saveRawData(raw);
+
+        const currentActive = this.getActiveHouseId();
+        const userHouses = this.getUserHouses(userId);
+        if (!currentActive || !userHouses.some((h) => h.id === currentActive)) {
+          if (userHouses.length > 0) {
+            this.setActiveHouseId(userHouses[0].id);
+          }
+        }
+        this.notify();
+      }
+    } catch (err) {
+      console.warn('[Storage Error] syncUserHousesFromFirestore failed:', err.message);
+    }
   }
 
   logout() {

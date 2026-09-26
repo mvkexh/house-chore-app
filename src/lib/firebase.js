@@ -9,6 +9,8 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
 } from 'firebase/auth';
@@ -42,6 +44,13 @@ export function isFirebaseConfigured() {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Ensure local persistence for cross-tab and cross-redirect auth state
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn('[Firebase Auth] Persistence initialization error:', err.message);
+  });
+}
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -296,6 +305,25 @@ export async function dbUpdateMemberDisplayName(userId, newDisplayName) {
     await Promise.all(updatePromises);
   } catch (err) {
     console.error('[Firestore Error] Update member display name error:', err.message);
+  }
+}
+
+export async function dbFetchUserHouses(userId) {
+  if (!userId || !isFirebaseConfigured()) return [];
+  try {
+    const membersQuery = query(collection(db, 'houseMembers'), where('userId', '==', userId));
+    const membersSnap = await getDocs(membersQuery);
+    if (membersSnap.empty) return [];
+
+    const activeMemberDocs = membersSnap.docs.filter((d) => d.data().isActive !== false);
+    const houseIds = [...new Set(activeMemberDocs.map((d) => d.data().houseId))];
+    
+    const housePromises = houseIds.map((hId) => dbFetchHouseData(hId));
+    const housesData = await Promise.all(housePromises);
+    return housesData.filter(Boolean);
+  } catch (err) {
+    console.error('[Firestore Error] Fetch user houses error:', err.message);
+    return [];
   }
 }
 

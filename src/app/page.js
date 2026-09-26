@@ -41,8 +41,19 @@ export default function Home() {
   };
 
   useEffect(() => {
-    // 0. Handle OAuth Redirect Result (if arriving back from signInWithRedirect)
-    handleAuthRedirectResult();
+    // 0. Handle OAuth Redirect Result (if returning from signInWithRedirect)
+    handleAuthRedirectResult().then((user) => {
+      if (user) {
+        const googleProfile = {
+          id: user.uid,
+          email: user.email,
+          full_name: user.displayName || user.email?.split('@')[0] || '',
+          avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
+          has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
+        };
+        store.loginWithGoogle(googleProfile);
+      }
+    });
 
     // 1. Local Store Subscription
     const unsubscribeStore = store.subscribe(() => {
@@ -59,6 +70,7 @@ export default function Home() {
           email: user.email,
           full_name: user.displayName || user.email?.split('@')[0] || '',
           avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
+          has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
         };
         store.loginWithGoogle(googleProfile);
       } else {
