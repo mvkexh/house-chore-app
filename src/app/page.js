@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import DiagnosticPanel from '../components/DiagnosticPanel';
 import { store, syncHouseWithServer } from '../lib/storage';
 import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, auth, diagStore } from '../lib/firebase';
 import Navbar from '../components/Navbar';
@@ -53,24 +52,47 @@ export default function Home() {
       setActiveHouseId(store.getActiveHouseId());
     });
 
-    // 2. Await Firebase Auth Persistence Initialization (IndexedDB on Mobile/PWA)
-    const initAuthSession = async () => {
+    // 2. Auth Session & Firestore House Hydration Flow (Waits for Auth & Firestore BEFORE resolving loading state)
+    const setupAuthAndHouses = async () => {
       try {
         if (auth && typeof auth.authStateReady === 'function') {
           await auth.authStateReady();
         }
+
+        const firebaseUser = auth?.currentUser;
+        if (firebaseUser) {
+          diagStore.log(`Startup Hydration: Authenticated user ${firebaseUser.email} (UID: ${firebaseUser.uid})`, 'info');
+          const googleProfile = {
+            id: firebaseUser.uid,
+            email: firebaseUser.email,
+            full_name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || '',
+            avatar_url: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(firebaseUser.email || 'user')}`,
+            has_chosen_name: Boolean(firebaseUser.displayName && firebaseUser.displayName.trim()),
+          };
+          await store.loginWithGoogle(googleProfile);
+        } else {
+          diagStore.log('Startup Hydration: Unauthenticated state', 'info');
+          if (!store.getCurrentUser()) {
+            store.clearCurrentUserIfUnauthenticated();
+          }
+        }
       } catch (err) {
-        console.warn('[Auth State Ready Error]', err);
+        console.warn('[Startup Auth Hydration Error]', err);
+      } finally {
+        if (isMounted) {
+          setIsAuthInitializing(false);
+        }
       }
     };
-    initAuthSession();
 
-    // 3. Firebase Auth State Change Listener (Google OAuth)
+    setupAuthAndHouses();
+
+    // 3. Firebase Auth State Change Listener (Runtime OAuth Updates)
     const unsubscribeAuth = subscribeToAuthState(async (user) => {
       if (!isMounted) return;
 
       if (user) {
-        diagStore.log(`Step 3: Processing authenticated user ${user.email} (UID: ${user.uid})`, 'info');
+        diagStore.log(`onAuthStateChanged: ${user.email} (UID: ${user.uid})`, 'info');
         const googleProfile = {
           id: user.uid,
           email: user.email,
@@ -79,17 +101,8 @@ export default function Home() {
           has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
         };
         await store.loginWithGoogle(googleProfile);
-
-        const updatedUser = store.getCurrentUser();
-        const userHouses = updatedUser ? store.getUserHouses(updatedUser.id) : [];
-        let destination = 'Dashboard';
-        if (!updatedUser) destination = 'Onboarding Step A (Sign In Screen)';
-        else if (!updatedUser.has_chosen_name) destination = 'Onboarding Step B (Name Setup)';
-        else if (userHouses.length === 0) destination = 'Onboarding Step C (House Setup)';
-
-        diagStore.log(`Step 5 DECISION: Auth guard destination -> ${destination}`, destination === 'Dashboard' ? 'success' : 'info');
       } else {
-        diagStore.log('Step 3: Unauthenticated state observed', 'info');
+        diagStore.log('onAuthStateChanged: Unauthenticated state', 'info');
         if (!store.getCurrentUser()) {
           store.clearCurrentUserIfUnauthenticated();
         }
@@ -149,22 +162,20 @@ export default function Home() {
     }
   }
 
-  // 0. Auth Initializing State -> Render Diagnostic Panel + Loading Spinner
+  // 0. Auth Initializing State -> Render Loading Spinner
   if (isAuthInitializing) {
     return (
       <main className="min-h-screen pt-40 flex flex-col items-center justify-center bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
-        <DiagnosticPanel />
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">Verifying session & Firestore profiles...</p>
       </main>
     );
   }
 
-  // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen + Diagnostic Panel
+  // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen
   if (!currentUser || !currentUser.has_chosen_name || !activeHouse) {
     return (
       <main className="min-h-screen pt-40 bg-slate-50 dark:bg-[#090d16] transition-colors">
-        <DiagnosticPanel />
         <Onboarding
           currentUser={currentUser}
           onComplete={(houseId) => {
@@ -228,7 +239,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen pt-40 flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
-      <DiagnosticPanel />
       {/* Top Navbar */}
       <Navbar
         currentUser={currentUser}
