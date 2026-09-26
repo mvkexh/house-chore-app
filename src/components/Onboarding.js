@@ -29,9 +29,12 @@ export default function Onboarding({ currentUser, onComplete }) {
   const handleTriggerGoogleOAuth = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     setErrorMessage('');
+    
+    // Launch Google Auth Popup synchronously in the user click event tick
+    const authPromise = signInWithGoogle();
     setIsSigningInOAuth(true);
 
-    signInWithGoogle()
+    authPromise
       .then(async (res) => {
         if (res && res.user) {
           const u = res.user;

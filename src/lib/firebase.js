@@ -177,8 +177,8 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 /**
  * Authentication Helpers
  */
-export async function signInWithGoogle() {
-  if (typeof window === 'undefined') return;
+export function signInWithGoogle() {
+  if (typeof window === 'undefined') return Promise.resolve(null);
 
   diagStore.log('BUTTON CLICKED', 'info');
   diagStore.log('signInWithPopup START', 'info');
@@ -187,38 +187,36 @@ export async function signInWithGoogle() {
     const errStr = 'Firebase Auth Configuration Error: Invalid or missing credentials.';
     diagStore.log(`signInWithPopup ERROR: ${errStr}`, 'error');
     diagStore.update({ lastErrorCode: 'MISSING_CONFIG', lastErrorMessage: errStr });
-    throw new Error(errStr);
+    return Promise.reject(new Error(errStr));
   }
-
-  await persistencePromise;
-  diagStore.log(`persistence configured = ${diagStore.state.persistenceConfigured}`, 'info');
 
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
 
-  try {
-    const result = await signInWithPopup(auth, provider);
-    if (result && result.user) {
-      diagStore.log('signInWithPopup SUCCESS', 'success');
-      diagStore.log(`UserCredential UID = ${result.user.uid}`, 'success');
-      diagStore.log(`auth.currentUser UID = ${auth.currentUser ? auth.currentUser.uid : 'null'}`, 'success');
+  return signInWithPopup(auth, provider)
+    .then((result) => {
+      if (result && result.user) {
+        diagStore.log('signInWithPopup SUCCESS', 'success');
+        diagStore.log(`UserCredential UID = ${result.user.uid}`, 'success');
+        diagStore.log(`auth.currentUser UID = ${auth.currentUser ? auth.currentUser.uid : 'null'}`, 'success');
+        diagStore.update({
+          firebaseUser: result.user.email,
+          uid: result.user.uid,
+          lastErrorCode: 'NONE',
+          lastErrorMessage: null,
+        });
+      }
+      return result;
+    })
+    .catch((error) => {
+      diagStore.log(`signInWithPopup ERROR: [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
       diagStore.update({
-        firebaseUser: result.user.email,
-        uid: result.user.uid,
-        lastErrorCode: 'NONE',
-        lastErrorMessage: null,
+        lastErrorCode: error.code || 'POPUP_ERR',
+        lastErrorMessage: error.message,
       });
-    }
-    return result;
-  } catch (error) {
-    diagStore.log(`signInWithPopup ERROR: [${error.code || 'POPUP_ERR'}] ${error.message}`, 'error');
-    diagStore.update({
-      lastErrorCode: error.code || 'POPUP_ERR',
-      lastErrorMessage: error.message,
+      // STOP immediately. Do NOT initiate signInWithRedirect or reload the page!
+      throw new Error(`Google Sign-In Error: [${error.code || 'POPUP_ERR'}] ${error.message}`);
     });
-    // STOP immediately. Do NOT initiate signInWithRedirect or reload the page!
-    throw new Error(`Google Sign-In Error: [${error.code || 'POPUP_ERR'}] ${error.message}`);
-  }
 }
 
 export async function handleAuthRedirectResult() {
