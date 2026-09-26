@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { store, syncHouseWithServer } from '../lib/storage';
-import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, auth, diagStore } from '../lib/firebase';
+import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, auth } from '../lib/firebase';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import Onboarding from '../components/Onboarding';
@@ -43,6 +43,7 @@ export default function Home() {
 
   useEffect(() => {
     let isMounted = true;
+    let initialHydrationDone = false;
 
     // 1. Local Store Subscription
     const unsubscribeStore = store.subscribe(() => {
@@ -61,7 +62,6 @@ export default function Home() {
 
         const firebaseUser = auth?.currentUser;
         if (firebaseUser) {
-          diagStore.log(`Startup Hydration: Authenticated user ${firebaseUser.email} (UID: ${firebaseUser.uid})`, 'info');
           const googleProfile = {
             id: firebaseUser.uid,
             email: firebaseUser.email,
@@ -71,7 +71,6 @@ export default function Home() {
           };
           await store.loginWithGoogle(googleProfile);
         } else {
-          diagStore.log('Startup Hydration: Unauthenticated state', 'info');
           if (!store.getCurrentUser()) {
             store.clearCurrentUserIfUnauthenticated();
           }
@@ -79,6 +78,7 @@ export default function Home() {
       } catch (err) {
         console.warn('[Startup Auth Hydration Error]', err);
       } finally {
+        initialHydrationDone = true;
         if (isMounted) {
           setIsAuthInitializing(false);
         }
@@ -92,7 +92,6 @@ export default function Home() {
       if (!isMounted) return;
 
       if (user) {
-        diagStore.log(`onAuthStateChanged: ${user.email} (UID: ${user.uid})`, 'info');
         const googleProfile = {
           id: user.uid,
           email: user.email,
@@ -102,13 +101,13 @@ export default function Home() {
         };
         await store.loginWithGoogle(googleProfile);
       } else {
-        diagStore.log('onAuthStateChanged: Unauthenticated state', 'info');
         if (!store.getCurrentUser()) {
           store.clearCurrentUserIfUnauthenticated();
         }
       }
 
-      if (isMounted) {
+      // ONLY resolve loading state if initial setupAuthAndHouses has completed
+      if (isMounted && initialHydrationDone) {
         setIsAuthInitializing(false);
       }
     });
@@ -117,7 +116,6 @@ export default function Home() {
     handleAuthRedirectResult().then(async (user) => {
       if (!isMounted) return;
       if (user) {
-        diagStore.log(`Step 2: Processing redirect user ${user.email} (UID: ${user.uid})`, 'info');
         const googleProfile = {
           id: user.uid,
           email: user.email,
@@ -126,7 +124,7 @@ export default function Home() {
           has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
         };
         await store.loginWithGoogle(googleProfile);
-        if (isMounted) setIsAuthInitializing(false);
+        if (isMounted && initialHydrationDone) setIsAuthInitializing(false);
       }
     });
 
@@ -165,7 +163,7 @@ export default function Home() {
   // 0. Auth Initializing State -> Render Loading Spinner
   if (isAuthInitializing) {
     return (
-      <main className="min-h-screen pt-40 flex flex-col items-center justify-center bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+      <main className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">Verifying session & Firestore profiles...</p>
       </main>
@@ -175,7 +173,7 @@ export default function Home() {
   // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen
   if (!currentUser || !currentUser.has_chosen_name || !activeHouse) {
     return (
-      <main className="min-h-screen pt-40 bg-slate-50 dark:bg-[#090d16] transition-colors">
+      <main className="min-h-screen bg-slate-50 dark:bg-[#090d16] transition-colors">
         <Onboarding
           currentUser={currentUser}
           onComplete={(houseId) => {
@@ -238,7 +236,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen pt-40 flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
       {/* Top Navbar */}
       <Navbar
         currentUser={currentUser}
