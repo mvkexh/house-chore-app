@@ -11,10 +11,15 @@ export function getNotificationPermission() {
   return Notification.permission;
 }
 
-export async function requestNotificationPermission() {
+import { requestPushNotificationPermission as fcmRequestPushPermission } from './firebase';
+
+export async function requestNotificationPermission(userId) {
   if (!isNotificationSupported()) return 'denied';
   try {
     const permission = await Notification.requestPermission();
+    if (permission === 'granted' && userId) {
+      await fcmRequestPushPermission(userId);
+    }
     return permission;
   } catch (e) {
     console.error('Error requesting notification permission:', e);

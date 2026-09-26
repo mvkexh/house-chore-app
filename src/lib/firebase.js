@@ -580,6 +580,8 @@ export async function dbMarkNotificationRead(notificationId) {
   }
 }
 
+const seenNotifIds = new Set();
+
 export function subscribeToUserNotifications(userId, callback) {
   if (!userId || !isFirebaseConfigured()) return () => {};
   
@@ -602,6 +604,25 @@ export function subscribeToUserNotifications(userId, callback) {
         };
       }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       
+      // Trigger OS/Browser Push Notification when new unread notification arrives
+      notifications.forEach((n) => {
+        if (!n.is_read && !seenNotifIds.has(n.id)) {
+          seenNotifIds.add(n.id);
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification(n.title || 'Room Buddy Alert', {
+                body: n.message || 'You have a new house update.',
+                icon: 'https://api.dicebear.com/7.x/bottts/svg?seed=roombuddy',
+              });
+            } catch (err) {
+              console.warn('[Browser Push Notification Warning]', err);
+            }
+          }
+        } else if (n.id) {
+          seenNotifIds.add(n.id);
+        }
+      });
+
       callback(notifications);
     },
     (err) => console.warn('[Realtime Notifications Error]', err.message)
@@ -891,4 +912,185 @@ export function subscribeToHouseRealtimeData(houseId, callback) {
     unsubAttn();
   };
 }
+
+/**
+ * Atomic Creation of Chore + Generated Assignments + Member Notifications in Cloud Firestore
+ */
+export async function dbSaveChoreWithAssignmentsAndNotificationsAtomic(choreObj, assignments = [], notifications = []) {
+  if (!choreObj || !choreObj.id || !isFirebaseConfigured()) return choreObj;
+  try {
+    const batch = writeBatch(db);
+
+    // 1. Chore Document
+    const choreRef = doc(db, 'chores', choreObj.id);
+    const choreDocData = {
+      id: choreObj.id,
+      houseId: choreObj.house_id || choreObj.houseId,
+      house_id: choreObj.house_id || choreObj.houseId,
+      title: choreObj.title,
+      description: choreObj.description || '',
+      createdBy: choreObj.created_by || choreObj.createdBy,
+      created_by: choreObj.created_by || choreObj.createdBy,
+      choreType: choreObj.chore_type || choreObj.choreType || 'REPEAT_ON_DEMAND',
+      chore_type: choreObj.chore_type || choreObj.choreType || 'REPEAT_ON_DEMAND',
+      frequency: choreObj.frequency || 'WEEKLY',
+      requiredPeopleCount: choreObj.required_people_count || choreObj.requiredPeopleCount || 1,
+      required_people_count: choreObj.required_people_count || choreObj.requiredPeopleCount || 1,
+      scheduleDay: choreObj.schedule_day || choreObj.scheduleDay || 'Monday',
+      schedule_day: choreObj.schedule_day || choreObj.scheduleDay || 'Monday',
+      scheduleTime: choreObj.schedule_time || choreObj.scheduleTime || '19:00',
+      schedule_time: choreObj.schedule_time || choreObj.scheduleTime || '19:00',
+      startDate: choreObj.start_date || choreObj.startDate || new Date().toISOString().split('T')[0],
+      start_date: choreObj.start_date || choreObj.startDate || new Date().toISOString().split('T')[0],
+      notes: choreObj.notes || '',
+      subItems: choreObj.sub_items || choreObj.subItems || [],
+      sub_items: choreObj.sub_items || choreObj.subItems || [],
+      dailyReminderEnabled: Boolean(choreObj.daily_reminder_enabled || choreObj.dailyReminderEnabled),
+      daily_reminder_enabled: Boolean(choreObj.daily_reminder_enabled || choreObj.dailyReminderEnabled),
+      dailyReminderTime: choreObj.daily_reminder_time || choreObj.dailyReminderTime || '19:00',
+      daily_reminder_time: choreObj.daily_reminder_time || choreObj.dailyReminderTime || '19:00',
+      assignmentPreferenceType: choreObj.assignment_preference_type || choreObj.assignmentPreferenceType || 'AUTOMATIC',
+      assignment_preference_type: choreObj.assignment_preference_type || choreObj.assignmentPreferenceType || 'AUTOMATIC',
+      preferredUserIds: choreObj.preferred_user_ids || choreObj.preferredUserIds || [],
+      preferred_user_ids: choreObj.preferred_user_ids || choreObj.preferredUserIds || [],
+      avoidUserIds: choreObj.avoid_user_ids || choreObj.avoidUserIds || [],
+      avoid_user_ids: choreObj.avoid_user_ids || choreObj.avoidUserIds || [],
+      isActive: choreObj.is_active !== undefined ? choreObj.is_active : true,
+      is_active: choreObj.is_active !== undefined ? choreObj.is_active : true,
+      createdAt: choreObj.created_at || choreObj.createdAt || new Date().toISOString(),
+      created_at: choreObj.created_at || choreObj.createdAt || new Date().toISOString(),
+    };
+    batch.set(choreRef, choreDocData, { merge: true });
+
+    // 2. Assignments Documents
+    assignments.forEach((a) => {
+      if (!a || !a.id) return;
+      const ref = doc(db, 'assignments', a.id);
+      const docData = {
+        id: a.id,
+        houseId: a.house_id || a.houseId,
+        house_id: a.house_id || a.houseId,
+        choreId: a.chore_id || a.choreId,
+        chore_id: a.chore_id || a.choreId,
+        scheduleId: a.schedule_id || a.scheduleId,
+        schedule_id: a.schedule_id || a.scheduleId,
+        actualMemberIds: a.actual_member_ids || a.actualMemberIds || [],
+        actual_member_ids: a.actual_member_ids || a.actualMemberIds || [],
+        assignedNames: a.assigned_names || a.assignedNames || [],
+        assigned_names: a.assigned_names || a.assignedNames || [],
+        status: a.status || 'PENDING',
+        dueDate: a.due_date || a.dueDate || '',
+        due_date: a.due_date || a.dueDate || '',
+        dueTime: a.due_time || a.dueTime || '',
+        due_time: a.due_time || a.dueTime || '',
+        completedAt: a.completed_at || a.completedAt || null,
+        completed_at: a.completed_at || a.completedAt || null,
+        completedBy: a.completed_by || a.completedBy || null,
+        completed_by: a.completed_by || a.completedBy || null,
+        source: a.source || 'AUTOMATIC',
+        createdAt: a.created_at || a.createdAt || new Date().toISOString(),
+        created_at: a.created_at || a.createdAt || new Date().toISOString(),
+      };
+      batch.set(ref, docData, { merge: true });
+    });
+
+    // 3. Notifications Documents
+    notifications.forEach((notifObj) => {
+      if (!notifObj || !notifObj.id) return;
+      const ref = doc(db, 'notifications', notifObj.id);
+      const docData = {
+        id: notifObj.id,
+        userId: notifObj.user_id || notifObj.userId,
+        user_id: notifObj.user_id || notifObj.userId,
+        houseId: notifObj.house_id || notifObj.houseId,
+        house_id: notifObj.house_id || notifObj.houseId,
+        type: notifObj.type || 'GENERAL',
+        title: notifObj.title || 'Notification',
+        message: notifObj.message || '',
+        isRead: Boolean(notifObj.is_read || notifObj.isRead),
+        is_read: Boolean(notifObj.is_read || notifObj.isRead),
+        createdAt: notifObj.created_at || notifObj.createdAt || new Date().toISOString(),
+        created_at: notifObj.created_at || notifObj.createdAt || new Date().toISOString(),
+      };
+      batch.set(ref, docData, { merge: true });
+    });
+
+    await batch.commit();
+
+    // Trigger FCM Web Push API
+    const targetUserIds = notifications.map((n) => n.user_id || n.userId).filter(Boolean);
+    if (targetUserIds.length > 0 && typeof fetch !== 'undefined') {
+      fetch('/api/push-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetUserIds,
+          title: notifications[0]?.title || 'New Chore Created',
+          message: notifications[0]?.message || `A new chore "${choreObj.title}" was added to your house.`,
+          houseId: choreObj.house_id || choreObj.houseId,
+        }),
+      }).catch(() => {});
+    }
+
+    return choreObj;
+  } catch (err) {
+    console.error('[Firestore Error] Save chore atomic error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Register Firebase Cloud Messaging (FCM) Web Push Token
+ */
+export async function requestPushNotificationPermission(userId) {
+  if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
+    console.warn('[Push Notification] Environment does not support Web Push notifications.');
+    return null;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.warn('[Push Notification] User denied notification permission.');
+      return null;
+    }
+
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    await navigator.serviceWorker.ready;
+
+    let token = null;
+    try {
+      const { getMessaging, getToken } = await import('firebase/messaging');
+      const fcmMessaging = getMessaging(app);
+      token = await getToken(fcmMessaging, {
+        serviceWorkerRegistration: registration,
+      });
+    } catch (fcmErr) {
+      console.warn('[FCM Token Warning] Could not retrieve FCM token via Firebase Messaging:', fcmErr.message);
+    }
+
+    if (userId && isFirebaseConfigured()) {
+      const tokenVal = token || `browser_sub_${Date.now()}`;
+      const tokenRef = doc(db, 'userPushTokens', `${userId}_${tokenVal.substring(0, 20)}`);
+      await setDoc(
+        tokenRef,
+        {
+          userId: userId,
+          user_id: userId,
+          token: tokenVal,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          userAgent: navigator.userAgent,
+        },
+        { merge: true }
+      );
+    }
+
+    return token;
+  } catch (err) {
+    console.error('[Push Notification Error] Failed to request push notification permission:', err);
+    return null;
+  }
+}
+
 
