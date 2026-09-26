@@ -61,6 +61,8 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export async function signInWithGoogle() {
   if (typeof window === 'undefined') return;
 
+  console.log('[Auth Flow] 1. signInWithGoogle started');
+
   if (!isFirebaseConfigured()) {
     throw new Error(
       'Firebase Auth Configuration Error: Invalid or missing API Key. Please configure NEXT_PUBLIC_FIREBASE_API_KEY and NEXT_PUBLIC_FIREBASE_PROJECT_ID environment variables in your environment configuration.'
@@ -72,6 +74,10 @@ export async function signInWithGoogle() {
 
   try {
     const result = await signInWithPopup(auth, provider);
+    if (result && result.user) {
+      console.log('[Auth Flow] 2. Google result received:', result.user.email);
+      console.log('[Auth Flow] 3. Firebase UID:', result.user.uid);
+    }
     return result;
   } catch (error) {
     console.warn('[Firebase Auth Warning] Popup sign-in error:', error.code, error.message);
@@ -96,7 +102,8 @@ export async function handleAuthRedirectResult() {
   try {
     const result = await getRedirectResult(auth);
     if (result && result.user) {
-      console.log('[Firebase Auth] Redirect sign-in success:', result.user.email);
+      console.log('[Auth Flow] 2. Google result received (redirect):', result.user.email);
+      console.log('[Auth Flow] 3. Firebase UID:', result.user.uid);
       return result.user;
     }
   } catch (error) {

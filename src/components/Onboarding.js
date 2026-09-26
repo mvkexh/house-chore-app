@@ -34,12 +34,12 @@ export default function Onboarding({ currentUser, onComplete }) {
       const res = await signInWithGoogle();
       if (res && res.user) {
         const u = res.user;
-        store.loginWithGoogle({
+        await store.loginWithGoogle({
           id: u.uid,
           email: u.email || 'user@example.com',
           full_name: u.displayName || '',
           avatar_url: u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.email || 'user')}`,
-          has_chosen_name: false,
+          has_chosen_name: Boolean(u.displayName && u.displayName.trim()),
         });
       }
     } catch (err) {

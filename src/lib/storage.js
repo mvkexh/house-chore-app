@@ -195,7 +195,7 @@ class Store {
     return userJson ? JSON.parse(userJson) : null;
   }
 
-  loginWithGoogle(googleProfile = null) {
+  async loginWithGoogle(googleProfile = null) {
     if (!googleProfile) return null;
 
     const db = this.getRawData();
@@ -231,8 +231,13 @@ class Store {
 
     localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(existingUser));
 
-    // Sync profile to Cloud Firestore
-    dbUpsertUserProfile(existingUser);
+    // Sync profile to Cloud Firestore with authenticated UID
+    try {
+      await dbUpsertUserProfile(existingUser);
+    } catch (e) {
+      console.warn('[Firestore Profile Sync Error]', e.message);
+    }
+
     if (typeof fetch !== 'undefined') {
       fetch('/api/sync', {
         method: 'POST',
@@ -241,8 +246,8 @@ class Store {
       }).catch(() => {});
     }
 
-    // Sync user houses from Cloud Firestore
-    this.syncUserHousesFromFirestore(existingUser.id);
+    // Await user house hydration from Cloud Firestore before notifying UI
+    await this.syncUserHousesFromFirestore(existingUser.id);
 
     this.notify();
     return existingUser;

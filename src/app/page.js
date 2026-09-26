@@ -20,6 +20,7 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
   const [activeHouseId, setActiveHouseId] = useState(store.getActiveHouseId());
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isAuthInitializing, setIsAuthInitializing] = useState(true);
 
   // Modals & UI Controls
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -41,30 +42,24 @@ export default function Home() {
   };
 
   useEffect(() => {
-    // 0. Handle OAuth Redirect Result (if returning from signInWithRedirect)
-    handleAuthRedirectResult().then((user) => {
-      if (user) {
-        const googleProfile = {
-          id: user.uid,
-          email: user.email,
-          full_name: user.displayName || user.email?.split('@')[0] || '',
-          avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
-          has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
-        };
-        store.loginWithGoogle(googleProfile);
-      }
-    });
+    let isMounted = true;
 
     // 1. Local Store Subscription
     const unsubscribeStore = store.subscribe(() => {
+      if (!isMounted) return;
       setDbState(store.getRawData());
       setCurrentUser(store.getCurrentUser());
       setActiveHouseId(store.getActiveHouseId());
     });
 
     // 2. Firebase Auth State Change Listener (Google OAuth)
-    const unsubscribeAuth = subscribeToAuthState((user) => {
+    const unsubscribeAuth = subscribeToAuthState(async (user) => {
+      if (!isMounted) return;
+
+      console.log('[Auth Flow] 4. onAuthStateChanged user:', user ? user.email : 'null');
+
       if (user) {
+        console.log('[Auth Flow] 3. Firebase UID:', user.uid);
         const googleProfile = {
           id: user.uid,
           email: user.email,
@@ -72,13 +67,47 @@ export default function Home() {
           avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
           has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
         };
-        store.loginWithGoogle(googleProfile);
+        await store.loginWithGoogle(googleProfile);
+
+        const updatedUser = store.getCurrentUser();
+        const userHouses = updatedUser ? store.getUserHouses(updatedUser.id) : [];
+        let destination = 'Dashboard';
+        if (!updatedUser) destination = 'Onboarding Step A (Login)';
+        else if (!updatedUser.has_chosen_name) destination = 'Onboarding Step B (Name Setup)';
+        else if (userHouses.length === 0) destination = 'Onboarding Step C (House Setup)';
+
+        console.log('[Auth Flow] 5. Redirect destination:', destination);
       } else {
-        store.clearCurrentUserIfUnauthenticated();
+        if (!store.getCurrentUser()) {
+          store.clearCurrentUserIfUnauthenticated();
+        }
+      }
+
+      if (isMounted) {
+        setIsAuthInitializing(false);
+      }
+    });
+
+    // 3. Handle OAuth Redirect Result (if returning from signInWithRedirect)
+    handleAuthRedirectResult().then(async (user) => {
+      if (!isMounted) return;
+      if (user) {
+        console.log('[Auth Flow] 2. Google result received (redirect):', user.email);
+        console.log('[Auth Flow] 3. Firebase UID:', user.uid);
+        const googleProfile = {
+          id: user.uid,
+          email: user.email,
+          full_name: user.displayName || user.email?.split('@')[0] || '',
+          avatar_url: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email || 'user')}`,
+          has_chosen_name: Boolean(user.displayName && user.displayName.trim()),
+        };
+        await store.loginWithGoogle(googleProfile);
+        if (isMounted) setIsAuthInitializing(false);
       }
     });
 
     return () => {
+      isMounted = false;
       unsubscribeStore();
       unsubscribeAuth();
     };
@@ -98,6 +127,16 @@ export default function Home() {
     if (activeHouseId !== activeHouse.id) {
       store.setActiveHouseId(activeHouse.id);
     }
+  }
+
+  // 0. Auth Initializing State -> Render Loading Spinner, NOT Login Page!
+  if (isAuthInitializing) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">Verifying session...</p>
+      </div>
+    );
   }
 
   // 1. Not Logged In OR Display Name Not Setup OR No House Joined Yet -> Show Onboarding Screen
