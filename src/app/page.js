@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { store, syncHouseWithServer } from '../lib/storage';
-import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, auth } from '../lib/firebase';
+import { subscribeToAuthState, handleAuthRedirectResult, subscribeToHouseRealtimeData, auth, db, isFirebaseConfigured } from '../lib/firebase';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import Navbar from '../components/Navbar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import Onboarding from '../components/Onboarding';
@@ -56,11 +57,20 @@ export default function Home() {
     // 2. Auth Session & Firestore House Hydration Flow (Waits for Auth & Firestore BEFORE resolving loading state)
     const setupAuthAndHouses = async () => {
       try {
+        console.log('=== STARTUP PERSISTENCE AUDIT ===');
+        console.log('1. auth.currentUser (before authStateReady):', auth?.currentUser);
+
         if (auth && typeof auth.authStateReady === 'function') {
           await auth.authStateReady();
         }
 
         const firebaseUser = auth?.currentUser;
+        console.log('1. Firebase auth.currentUser (after authStateReady):', firebaseUser);
+        console.log('2. Firebase auth.currentUser.uid:', firebaseUser?.uid || 'NULL (Unauthenticated)');
+        console.log('3. Firebase auth.currentUser.email:', firebaseUser?.email || 'NULL');
+        console.log('4. Firebase auth persistence mode: browserLocalPersistence');
+        console.log('9. activeHouseId before hydration:', store.getActiveHouseId() || 'NULL');
+
         if (firebaseUser) {
           const googleProfile = {
             id: firebaseUser.uid,
@@ -69,8 +79,30 @@ export default function Home() {
             avatar_url: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(firebaseUser.email || 'user')}`,
             has_chosen_name: Boolean(firebaseUser.displayName && firebaseUser.displayName.trim()),
           };
+          
           await store.loginWithGoogle(googleProfile);
+
+          // Audit Firestore Membership Query
+          if (isFirebaseConfigured()) {
+            try {
+              const membersSnap = await getDocs(query(collection(db, 'houseMembers'), where('userId', '==', firebaseUser.uid)));
+              console.log(`5. Firestore query: houseMembers where userId == "${firebaseUser.uid}"`);
+              console.log(`6. Number of matching memberships: ${membersSnap.size}`);
+
+              const activeDocs = membersSnap.docs.filter((d) => d.data().isActive !== false);
+              const houseIds = [...new Set(activeDocs.map((d) => d.data().houseId).filter(Boolean))];
+              console.log('7. Matching house IDs:', houseIds);
+
+              for (const hId of houseIds) {
+                const hSnap = await getDoc(doc(db, 'houses', hId));
+                console.log(`8. Corresponding house doc "${hId}" exists:`, hSnap.exists());
+              }
+            } catch (fsErr) {
+              console.error('[STARTUP AUDIT Firestore Error]', fsErr.message);
+            }
+          }
         } else {
+          console.log('[STARTUP AUDIT] No authenticated Firebase user (CASE A)');
           if (!store.getCurrentUser()) {
             store.clearCurrentUserIfUnauthenticated();
           }
@@ -79,6 +111,24 @@ export default function Home() {
         console.warn('[Startup Auth Hydration Error]', err);
       } finally {
         initialHydrationDone = true;
+        console.log('10. activeHouseId after hydration:', store.getActiveHouseId() || 'NULL');
+
+        const finalUser = store.getCurrentUser();
+        const finalHouses = finalUser ? store.getUserHouses(finalUser.id) : [];
+        const finalActiveHouse = finalHouses.find((h) => h.id === store.getActiveHouseId()) || (finalHouses.length > 0 ? finalHouses[0] : null);
+
+        const decision = (!finalUser || !finalUser.has_chosen_name || !finalActiveHouse) ? 'ONBOARDING (Create/Join House)' : 'DASHBOARD';
+
+        console.log('11. EXACT CODE PATH DECISION:', {
+          currentUser: Boolean(finalUser),
+          currentUserId: finalUser?.id || 'NONE',
+          hasChosenName: Boolean(finalUser?.has_chosen_name),
+          activeHouseId: store.getActiveHouseId() || 'NONE',
+          userHousesCount: finalHouses.length,
+          activeHouseFound: Boolean(finalActiveHouse),
+          decision: decision,
+        });
+
         if (isMounted) {
           setIsAuthInitializing(false);
         }
